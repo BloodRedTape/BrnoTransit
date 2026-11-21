@@ -22,6 +22,7 @@ const (
 	maxIterations   = 12
 	searchWindow    = 3 * time.Hour
 	refreshInterval = 10 * time.Minute
+	transferSlack   = 1 * time.Minute
 )
 
 type GTFSPlanner struct {
@@ -127,7 +128,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		return nil, errors.New("origin equals destination")
 	}
 
-	depart = depart.In(d.loc)
+	depart = depart.In(d.loc).Truncate(time.Minute)
 	tt := d.timetable(depart)
 	t0 := int32(depart.Sub(tt.Base) / time.Second)
 	limit := t0 + int32(searchWindow/time.Second)
@@ -140,7 +141,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		js := tt.Search(sources, targets, t, maxRides)
+		js := tt.Search(sources, targets, t, maxRides, int32(transferSlack/time.Second))
 		if len(js) == 0 {
 			break
 		}

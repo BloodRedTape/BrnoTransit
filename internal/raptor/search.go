@@ -63,9 +63,10 @@ type search struct {
 	tauStar   []int32
 	isTarget  []bool
 	targetArr int32
+	slack     int32
 }
 
-func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int) []Journey {
+func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int, transferSlack int32) []Journey {
 	n := len(tt.Net.Feed.Stops)
 	rounds := maxRides + 1
 	s := &search{
@@ -77,6 +78,7 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		tauStar:   fill(n),
 		isTarget:  make([]bool, n),
 		targetArr: Infinity,
+		slack:     transferSlack,
 	}
 	for k := 0; k < rounds; k++ {
 		s.best[k] = fill(n)
@@ -171,6 +173,9 @@ func (s *search) scanRoute(k int, ri, start int32, mark func(int32)) {
 		prev := s.best[k-1][stop]
 		if prev == Infinity || !r.Pickup[pos] {
 			continue
+		}
+		if s.bestLab[k-1][stop].round > 0 {
+			prev += s.slack
 		}
 		if trip >= 0 && prev > r.DepAt(trip, pos) {
 			continue
