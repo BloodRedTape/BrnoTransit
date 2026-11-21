@@ -27,7 +27,7 @@ html, body {
 .app {
   max-width: 520px;
   margin: 0 auto;
-  padding: 16px 16px 40px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
@@ -55,10 +55,12 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
   padding: 12px 4px 22px;
 }
 .brand h1 { font-size: 1.5rem; letter-spacing: .02em; }
-.brand-mark {
-  width: 28px; height: 28px; border-radius: 8px;
-  background: linear-gradient(135deg, var(--red) 0 50%, var(--blue) 50% 100%);
-}
+.brand-icon { width: 28px; height: 28px; display: block; }
+
+.offline { padding: 20px; }
+.offline h2 { margin: 4px 0 8px; font-size: 1.25rem; }
+.offline p { margin: 0 0 18px; }
+.offline .btn-primary { text-decoration: none; }
 
 .search .field {
   display: flex; align-items: center; gap: 14px;

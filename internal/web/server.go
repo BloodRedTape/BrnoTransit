@@ -26,16 +26,29 @@ type Server struct {
 	loc     *time.Location
 	now     func() time.Time
 	pages   map[string]*template.Template
+
+	version       string
+	serviceWorker []byte
 }
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {
 	s := &Server{planner: p, stops: stops, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
-	for _, page := range []string{"index.html", "results.html", "map.html"} {
-		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/icons.html", "templates/"+page)
+	static, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, err
+	}
+	if s.version, err = hashFS(static); err != nil {
+		return nil, err
+	}
+	for _, page := range []string{"index.html", "results.html", "map.html", "offline.html"} {
+		t, err := template.New("").Funcs(funcs).Funcs(template.FuncMap{"asset": s.asset}).ParseFS(templateFS, "templates/layout.html", "templates/icons.html", "templates/"+page)
 		if err != nil {
 			return nil, err
 		}
 		s.pages[page] = t
+	}
+	if err := s.buildServiceWorker(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -49,7 +62,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /map", s.handleMap)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.HandleFunc("GET /offline", s.handleOffline)
+	mux.HandleFunc("GET /sw.js", s.handleServiceWorker)
+	mux.HandleFunc("GET /manifest.webmanifest", s.handleManifest)
+	mux.Handle("GET /favicon.ico", http.RedirectHandler(s.asset("icons/favicon-32.png"), http.StatusMovedPermanently))
+	mux.Handle("GET /static/", staticCache(http.StripPrefix("/static/", http.FileServerFS(static))))
 	return mux
 }
 

@@ -250,3 +250,9 @@ document.addEventListener("DOMContentLoaded", () => {
     [from.value, to.value] = [to.value, from.value];
   });
 });
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("service worker:", e));
+  });
+}
