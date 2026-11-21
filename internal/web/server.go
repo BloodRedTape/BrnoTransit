@@ -30,7 +30,7 @@ type Server struct {
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {
 	s := &Server{planner: p, stops: stops, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
-	for _, page := range []string{"index.html", "results.html"} {
+	for _, page := range []string{"index.html", "results.html", "map.html"} {
 		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/icons.html", "templates/"+page)
 		if err != nil {
 			return nil, err
@@ -48,17 +48,17 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /search", s.handleSearch)
+	mux.HandleFunc("GET /map", s.handleMap)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	return mux
 }
 
 type indexPage struct {
-	Title   string
-	From    string
-	To      string
-	Error   string
-	NowText string
-	Stops   []string
+	Title string
+	From  string
+	To    string
+	Error string
+	Stops []string
 }
 
 func (s *Server) indexData(from, to, errMsg string) indexPage {
@@ -67,12 +67,11 @@ func (s *Server) indexData(from, to, errMsg string) indexPage {
 		names = append(names, st.Name)
 	}
 	return indexPage{
-		Title:   "Brno Transit",
-		From:    from,
-		To:      to,
-		Error:   errMsg,
-		NowText: s.now().In(s.loc).Format("15:04"),
-		Stops:   names,
+		Title: "Brno Transit",
+		From:  from,
+		To:    to,
+		Error: errMsg,
+		Stops: names,
 	}
 }
 
@@ -115,6 +114,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		SortedBy: "Fastest arrival",
 		Journeys: buildJourneyViews(journeys, now, s.loc),
 	})
+}
+
+func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
+	legs, err := decodeMapToken(r.URL.Query().Get("j"))
+	if err != nil {
+		http.Error(w, "invalid route link", http.StatusBadRequest)
+		return
+	}
+	page, err := buildMapPage(legs)
+	if err != nil {
+		http.Error(w, "invalid route link", http.StatusBadRequest)
+		return
+	}
+	s.render(w, http.StatusOK, "map.html", page)
 }
 
 func (s *Server) validate(from, to string) string {

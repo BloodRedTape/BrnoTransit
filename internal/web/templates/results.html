@@ -11,7 +11,7 @@
 <article class="card journey">
   <div class="journey-head">
     <span class="{{if .Soon}}soon{{else}}later{{end}}">In {{.InMinutes}} min</span>
-    <span class="journey-meta">{{.DurationMin}} min | {{.DistanceKm}}</span>
+    <span class="journey-meta">{{.DurationMin}} min | {{.DistanceKm}}{{if .MapURL}}<a class="map-link accent" href="{{.MapURL}}" aria-label="Show route on map">{{template "icon-map"}}</a>{{end}}</span>
   </div>
   {{range .Legs}}
   {{if .Walk}}

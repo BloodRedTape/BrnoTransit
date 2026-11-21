@@ -1,0 +1,39 @@
+{{define "content"}}
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.css" integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous">
+<script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js" integrity="sha384-nXMl9YiLoSG5KBPTFgvxVuIqQQcqIvo0bFrvoEaGJC6r7IibIzF1S36Zbf/sKBtL" crossorigin="anonymous"></script>
+
+<header class="topbar">
+  <a class="back accent" href="{{.BackURL}}" data-history-back aria-label="Back to connections">{{template "icon-back"}}</a>
+  <h1>Route map</h1>
+</header>
+
+<div class="map-head">
+  <span class="map-times">{{.Dep}} &rarr; {{.Arr}}</span>
+  <span class="muted">{{.Duration}} min</span>
+</div>
+
+<div id="route-map" class="route-map" data-map="{{.MapJSON}}"></div>
+
+<section class="card map-legs">
+  {{range .Legs}}
+  {{if .Walk}}
+  <div class="map-leg walk">
+    <span class="map-leg-icon">{{template "icon-walk"}}</span>
+    <div class="map-leg-body">
+      <div>Walk {{.Minutes}} min</div>
+      <div class="muted small">{{if eq .From .To}}change platform at {{.From}}{{else}}{{.From}} &rarr; {{.To}}{{end}}</div>
+    </div>
+  </div>
+  {{else}}
+  <div class="map-leg" style="--line: {{.ColorCSS}}; --line-text: {{.TextCSS}}">
+    <span class="map-leg-icon">{{template "icon-mode" .Mode}}</span>
+    <div class="map-leg-body">
+      <div><span class="badge">{{.Line}}</span>{{if .Headsign}} <span class="muted small">&rarr; {{.Headsign}}</span>{{end}}</div>
+      <div class="map-leg-stops"><b>{{.Dep}}</b> {{.From}}</div>
+      <div class="map-leg-stops"><b>{{.Arr}}</b> {{.To}}</div>
+    </div>
+  </div>
+  {{end}}
+  {{end}}
+</section>
+{{end}}

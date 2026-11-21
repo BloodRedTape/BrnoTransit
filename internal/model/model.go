@@ -17,6 +17,10 @@ type Stop struct {
 	Name string
 }
 
+type Point struct {
+	Lat, Lon float64
+}
+
 type Line struct {
 	Name      string
 	Color     string
@@ -36,6 +40,7 @@ type Leg struct {
 	IntermediateStops int
 	DelayMinutes      int
 	DistanceMeters    int
+	Path              []Point
 }
 
 func (l Leg) IsWalk() bool { return l.Mode == Walk }

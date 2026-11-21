@@ -320,9 +320,11 @@ func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey) model.Journey 
 			Depart:       at(l.Dep),
 			Arrive:       at(l.Arr),
 		}
+		pt := func(s gtfs.Stop) model.Point { return model.Point{Lat: s.Lat, Lon: s.Lon} }
 		if l.Walk {
 			leg.Mode = model.Walk
 			leg.DistanceMeters = int(l.Meters)
+			leg.Path = []model.Point{pt(from), pt(to)}
 		} else {
 			r := &tt.Routes[l.Route]
 			gr := feed.Routes[r.GTFSRoute]
@@ -331,8 +333,10 @@ func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey) model.Journey 
 			leg.Headsign = feed.Trips[r.Trips[l.Trip]].Headsign
 			leg.IntermediateStops = int(l.AlightPos - l.BoardPos - 1)
 			meters := 0.0
+			leg.Path = append(leg.Path, pt(from))
 			for p := l.BoardPos; p < l.AlightPos; p++ {
 				meters += raptor.Distance(feed.Stops[r.Stops[p]], feed.Stops[r.Stops[p+1]])
+				leg.Path = append(leg.Path, pt(feed.Stops[r.Stops[p+1]]))
 			}
 			leg.DistanceMeters = int(meters)
 		}

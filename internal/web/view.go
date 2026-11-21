@@ -46,6 +46,7 @@ type journeyView struct {
 	DurationMin int
 	DistanceKm  string
 	Legs        []legView
+	MapURL      string
 }
 
 type legView struct {
@@ -78,6 +79,7 @@ func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location) []
 			Soon:        in <= soonThreshold,
 			DurationMin: int(j.Duration().Round(time.Minute).Minutes()),
 			DistanceKm:  formatKm(j.DistanceMeters()),
+			MapURL:      mapURL(j, loc),
 		}
 		for _, l := range j.Legs {
 			jv.Legs = append(jv.Legs, legView{

@@ -19,11 +19,6 @@
     <input id="to" name="to" class="stop-input" placeholder="To" value="{{.To}}" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="to-list">
     <ul class="suggest" id="to-list" role="listbox" hidden></ul>
   </div>
-  <div class="field static">
-    <span class="accent">{{template "icon-clock"}}</span>
-    <span>Departing now</span>
-    <span class="muted now">{{.NowText}}</span>
-  </div>
   <button type="submit" class="btn-primary">{{template "icon-search"}}<span>Search connections</span></button>
   <script id="stops-data" type="application/json">{{.Stops}}</script>
 </form>
