@@ -1,0 +1,30 @@
+{{define "content"}}
+<header class="brand">
+  <span class="brand-mark" aria-hidden="true"></span>
+  <h1>Brno Transit</h1>
+</header>
+
+<form class="card search" action="/search" method="get" autocomplete="off">
+  {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+  <div class="field">
+    <span class="dot dot-hollow" aria-hidden="true"></span>
+    <label class="sr-only" for="from">From</label>
+    <input id="from" name="from" list="stops" placeholder="From" value="{{.From}}" required>
+    <button type="button" class="swap" id="swap" aria-label="Swap From and To">{{template "icon-swap"}}</button>
+  </div>
+  <div class="field">
+    <span class="dot dot-filled" aria-hidden="true"></span>
+    <label class="sr-only" for="to">To</label>
+    <input id="to" name="to" list="stops" placeholder="To" value="{{.To}}" required>
+  </div>
+  <div class="field static">
+    <span class="accent">{{template "icon-clock"}}</span>
+    <span>Departing now</span>
+    <span class="muted now">{{.NowText}}</span>
+  </div>
+  <button type="submit" class="btn-primary">{{template "icon-search"}}<span>Search connections</span></button>
+  <datalist id="stops">
+    {{range .Stops}}<option value="{{.}}">{{end}}
+  </datalist>
+</form>
+{{end}}

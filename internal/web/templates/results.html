@@ -1,0 +1,51 @@
+{{define "content"}}
+<header class="topbar">
+  <a class="back accent" href="{{.BackURL}}" aria-label="Back to search">{{template "icon-back"}}</a>
+  <h1>Connections found</h1>
+</header>
+
+<p class="route-summary muted">{{.From}} &rarr; {{.To}}</p>
+<div class="sort-pill" title="Sort order is fixed">{{template "icon-lock"}}<span>Sorted by: {{.SortedBy}}</span></div>
+
+{{range .Journeys}}
+<article class="card journey">
+  <div class="journey-head">
+    <span class="{{if .Soon}}soon{{else}}later{{end}}">In {{.InMinutes}} min</span>
+    <span class="journey-meta">{{.DurationMin}} min | {{.DistanceKm}}</span>
+  </div>
+  {{range .Legs}}
+  {{if .Walk}}
+  <div class="walk-row muted">{{template "icon-walk"}}<span>Walk {{.WalkMinutes}} min</span><span class="walk-detail">platform {{.FromPlatform}} &rarr; {{.ToPlatform}}</span></div>
+  {{else}}
+  <section class="leg" style="--line: {{.Color}}">
+    <div class="leg-head">
+      {{template "icon-mode" .Mode}}
+      <span class="badge">{{.Line}}</span>
+      <span class="leg-dir muted">{{.Mode}}</span>
+    </div>
+    <div class="timeline">
+      <div class="stop">
+        <span class="tl-dot" aria-hidden="true"></span>
+        <span class="time">{{.DepartTime}}</span>
+        <div class="stop-info">
+          <div class="stop-name">{{.From}} <span class="platform">{{.FromPlatform}}</span></div>
+          <div class="intermediate">{{.Intermediate}} intermediate {{plural .Intermediate "stop" "stops"}}</div>
+        </div>
+      </div>
+      <div class="stop">
+        <span class="tl-dot" aria-hidden="true"></span>
+        <span class="time">{{.ArriveTime}}</span>
+        <div class="stop-info">
+          <div class="stop-name">{{.To}} <span class="platform">{{.ToPlatform}}</span></div>
+          {{if gt .DelayMinutes 0}}<div class="status late">delay {{.DelayMinutes}} {{plural .DelayMinutes "minute" "minutes"}}</div>{{else}}<div class="status ontime">On time</div>{{end}}
+        </div>
+      </div>
+    </div>
+  </section>
+  {{end}}
+  {{end}}
+</article>
+{{else}}
+<p class="card empty">No connections found.</p>
+{{end}}
+{{end}}
