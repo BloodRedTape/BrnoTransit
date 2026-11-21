@@ -188,42 +188,7 @@ function addRouteLayers(map, legs, scheme) {
   });
 }
 
-const LIVE_STALE_S = 300;
 const LIVE_PREF_KEY = "liveVehicles";
-const NEAR_ROUTE_M = 1000;
-
-function routeSegments(legs) {
-  const segs = [];
-  for (const leg of legs) {
-    for (let i = 1; i < leg.p.length; i++) segs.push([leg.p[i - 1], leg.p[i]]);
-  }
-  return segs;
-}
-
-function distanceToSegmentM([lat, lon], [[lat1, lon1], [lat2, lon2]]) {
-  const kx = 111320 * Math.cos((lat * Math.PI) / 180);
-  const ky = 110540;
-  const ax = (lon1 - lon) * kx, ay = (lat1 - lat) * ky;
-  const bx = (lon2 - lon) * kx, by = (lat2 - lat) * ky;
-  const dx = bx - ax, dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
-  return Math.hypot(ax + t * dx, ay + t * dy);
-}
-
-const nearRoute = (v, segs) => segs.some((seg) => distanceToSegmentM([v.lat, v.lon], seg) <= NEAR_ROUTE_M);
-
-function relevantVehicles(vehicles, rides) {
-  const picked = new Map();
-  for (const leg of rides) {
-    const ofLine = vehicles.filter((v) => v.line === leg.l);
-    const sameDir = leg.h ? ofLine.filter((v) => v.final && fold(v.final) === fold(leg.h)) : [];
-    for (const v of sameDir.length ? sameDir : ofLine) {
-      if (!picked.has(v.id)) picked.set(v.id, { v, leg });
-    }
-  }
-  return [...picked.values()];
-}
 
 function vehicleElement() {
   const el = document.createElement("div");
@@ -246,98 +211,90 @@ function updateVehicleElement(el, v, leg) {
   el.title = `${v.line}${dest} · ${v.delay > 0 ? `delay ${v.delay} min` : "on time"}`;
 }
 
+function liveLegText(leg, state) {
+  const head = `${state.line || leg.l} · ${state.dep || leg.d}`;
+  if (state.status === "live") {
+    const d = state.vehicle.delay || 0;
+    return `${head} — ${d > 0 ? `+${d} min late` : d < 0 ? `${-d} min early` : "on time"}`;
+  }
+  if (state.status === "not_started") {
+    const fromHere = !state.startStop || state.startStop === leg.f;
+    return fromHere
+      ? `${head} — trip hasn't started yet, departs at ${state.startTime}`
+      : `${head} — trip hasn't started yet, leaves ${state.startStop} at ${state.startTime}`;
+  }
+  if (state.status === "waiting") return `${head} — no live position yet`;
+  return `${head} — no live data`;
+}
+
 function initLiveVehicles(map, legs) {
   const toggle = document.getElementById("live-toggle");
   const status = document.getElementById("live-status");
   if (!toggle) return;
-  const rides = legs.filter((l) => !l.w && l.l);
-  const lines = [...new Set(rides.map((l) => l.l))];
-  if (!lines.length) {
+  const rides = legs.filter((l) => !l.w && l.ti && l.bs && l.bt);
+  if (!rides.length) {
     toggle.closest(".switch").hidden = true;
     return;
   }
-  const segs = routeSegments(legs);
-  const vehicles = new Map();
+  const query = rides.map((l) => `leg=${encodeURIComponent(`${l.ti}~${l.bs}~${l.bt}`)}`).join("&");
   const markers = new Map();
   let source = null;
   let reopenTimer = null;
-  let pruneTimer = null;
-  let upstreamDown = false;
 
-  const setStatus = (text) => {
-    status.hidden = !text;
-    status.textContent = text || "";
+  const setStatus = (lines) => {
+    status.replaceChildren(...lines.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
+    status.hidden = !lines.length;
   };
   const clearMarkers = () => {
     markers.forEach((m) => m.remove());
     markers.clear();
   };
 
-  function render() {
-    const cutoff = Date.now() / 1000 - LIVE_STALE_S;
-    for (const [id, v] of vehicles) if (v.updated < cutoff) vehicles.delete(id);
-    const shown = relevantVehicles([...vehicles.values()], rides).filter(({ v }) => nearRoute(v, segs));
+  function render(state) {
     const seen = new Set();
-    for (const { v, leg } of shown) {
-      seen.add(v.id);
-      let m = markers.get(v.id);
+    state.legs.forEach((ls, i) => {
+      const leg = rides[i];
+      if (!leg || ls.status !== "live" || !ls.vehicle) return;
+      const v = ls.vehicle;
+      seen.add(i);
+      let m = markers.get(i);
       if (!m) {
         m = new maplibregl.Marker({ element: vehicleElement(), anchor: "center" }).setLngLat([v.lon, v.lat]).addTo(map);
-        markers.set(v.id, m);
+        markers.set(i, m);
       }
       m.setLngLat([v.lon, v.lat]);
       updateVehicleElement(m.getElement(), v, leg);
-    }
-    for (const [id, m] of markers) {
-      if (!seen.has(id)) {
+    });
+    for (const [i, m] of markers) {
+      if (!seen.has(i)) {
         m.remove();
-        markers.delete(id);
+        markers.delete(i);
       }
     }
-    const lineText = `line ${lines.join(", ")}`;
-    if (shown.length) setStatus(`${shown.length} ${shown.length === 1 ? "vehicle" : "vehicles"} of ${lineText} · live`);
-    else if (upstreamDown) setStatus("Live positions are unavailable right now");
-    else setStatus(`No vehicles of ${lineText} near your route right now`);
+    const lines = state.legs.map((ls, i) => liveLegText(rides[i] || {}, ls));
+    if (!state.connected && !seen.size) lines.unshift("Live positions are unavailable right now");
+    setStatus(lines);
   }
-
-  const apply = (list) => {
-    for (const v of list) {
-      if (v.gone) vehicles.delete(v.id);
-      else vehicles.set(v.id, v);
-    }
-    render();
-  };
 
   function open() {
     if (source || document.hidden) return;
     clearTimeout(reopenTimer);
-    source = new EventSource(`/api/vehicles/stream?lines=${encodeURIComponent(lines.join(","))}`);
-    source.addEventListener("snapshot", (e) => {
-      const snap = JSON.parse(e.data);
-      upstreamDown = !snap.connected && !snap.vehicles.length;
-      vehicles.clear();
-      apply(snap.vehicles);
-    });
-    source.addEventListener("update", (e) => {
-      upstreamDown = false;
-      apply(JSON.parse(e.data));
-    });
+    source = new EventSource(`/api/vehicles/stream?${query}`);
+    source.addEventListener("state", (e) => render(JSON.parse(e.data)));
     source.addEventListener("error", () => {
       if (source.readyState === EventSource.CLOSED) {
         close();
-        setStatus("Live positions are unavailable right now");
+        setStatus(["Live positions are unavailable right now"]);
         reopenTimer = setTimeout(open, 15000);
       } else {
-        setStatus("Reconnecting to live positions…");
+        setStatus(["Reconnecting to live positions…"]);
       }
     });
-    pruneTimer = setInterval(render, 30000);
   }
 
   function close() {
     source?.close();
     source = null;
-    clearInterval(pruneTimer);
     clearTimeout(reopenTimer);
   }
 
@@ -346,9 +303,8 @@ function initLiveVehicles(map, legs) {
     if (toggle.checked) open();
     else {
       close();
-      vehicles.clear();
       clearMarkers();
-      setStatus("");
+      setStatus([]);
     }
   });
   document.addEventListener("visibilitychange", () => {

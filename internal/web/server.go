@@ -33,6 +33,7 @@ type Server struct {
 
 	live      *live.Tracker
 	stopNames StopNamer
+	trips     TripResolver
 }
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {

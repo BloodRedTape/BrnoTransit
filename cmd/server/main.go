@@ -37,6 +37,7 @@ func main() {
 	var p planner.Planner
 	var stops planner.StopDirectory
 	var names web.StopNamer
+	var trips web.TripResolver
 	if *mock {
 		ms := planner.MockStops()
 		p, stops = planner.NewMockPlanner(ms), ms
@@ -46,7 +47,7 @@ func main() {
 			log.Fatal(err)
 		}
 		go gp.Run(ctx)
-		p, stops, names = gp, gp, gp
+		p, stops, names, trips = gp, gp, gp, gp
 	}
 
 	srv, err := web.NewServer(p, stops, loc)
@@ -56,7 +57,7 @@ func main() {
 	if *liveURL != "" {
 		tracker := live.NewTracker(*liveURL)
 		go tracker.Run(ctx)
-		srv.SetLive(tracker, names)
+		srv.SetLive(tracker, names, trips)
 	}
 
 	httpSrv := &http.Server{

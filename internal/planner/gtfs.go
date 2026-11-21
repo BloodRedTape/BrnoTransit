@@ -45,6 +45,7 @@ type dataset struct {
 	byName   map[string]int
 	byFold   map[string]int
 	byNumber map[int]string
+	tripByID map[string]int32
 
 	mu   sync.Mutex
 	days map[int]*raptor.Timetable
@@ -109,6 +110,45 @@ func (p *GTFSPlanner) install(feed *gtfs.Feed) {
 }
 
 func (p *GTFSPlanner) Stops() []model.Stop { return p.data.Load().stops }
+
+type TripSchedule struct {
+	Line     string
+	Stations []int
+	Arr, Dep []time.Time
+}
+
+func (p *GTFSPlanner) TripSchedule(tripID, boardStopID string, boardDep time.Time) (TripSchedule, bool) {
+	d := p.data.Load()
+	feed := d.net.Feed
+	ti, ok := d.tripByID[tripID]
+	if !ok {
+		return TripSchedule{}, false
+	}
+	board, ok := feed.StopIndex[boardStopID]
+	if !ok {
+		return TripSchedule{}, false
+	}
+	trip := &feed.Trips[ti]
+	boardPos := -1
+	for i, st := range trip.Times {
+		if st.Stop == board {
+			boardPos = i
+			break
+		}
+	}
+	if boardPos < 0 {
+		return TripSchedule{}, false
+	}
+	base := boardDep.Add(-time.Duration(trip.Times[boardPos].Dep) * time.Second)
+	s := TripSchedule{Line: feed.Routes[trip.Route].ShortName}
+	for _, st := range trip.Times {
+		n, _ := stopNumber(feed.Stops[st.Stop].ID)
+		s.Stations = append(s.Stations, n)
+		s.Arr = append(s.Arr, base.Add(time.Duration(st.Arr)*time.Second))
+		s.Dep = append(s.Dep, base.Add(time.Duration(st.Dep)*time.Second))
+	}
+	return s, true
+}
 
 func (p *GTFSPlanner) StopNameByNumber(n int) (string, bool) {
 	name, ok := p.data.Load().byNumber[n]
@@ -247,7 +287,10 @@ func mergeSameRides(js []raptor.Journey) []raptor.Journey {
 
 func newDataset(feed *gtfs.Feed, loc *time.Location) *dataset {
 	net := raptor.NewNetwork(feed)
-	d := &dataset{net: net, loc: loc, byName: map[string]int{}, byFold: map[string]int{}, byNumber: map[int]string{}, days: map[int]*raptor.Timetable{}}
+	d := &dataset{net: net, loc: loc, byName: map[string]int{}, byFold: map[string]int{}, byNumber: map[int]string{}, tripByID: make(map[string]int32, len(feed.Trips)), days: map[int]*raptor.Timetable{}}
+	for i, t := range feed.Trips {
+		d.tripByID[t.ID] = int32(i)
+	}
 	for _, s := range feed.Stops {
 		if n, ok := stopNumber(s.ID); ok {
 			if _, seen := d.byNumber[n]; !seen || s.Station {
@@ -361,6 +404,7 @@ func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey) model.Journey 
 			leg.Mode = modeOf(gr.Type)
 			leg.Line = model.Line{Name: gr.ShortName, Color: hexColor(gr.Color, "#2f86d0"), TextColor: hexColor(gr.TextColor, "#ffffff")}
 			leg.Headsign = feed.Trips[r.Trips[l.Trip]].Headsign
+			leg.TripID = feed.Trips[r.Trips[l.Trip]].ID
 			leg.IntermediateStops = int(l.AlightPos - l.BoardPos - 1)
 			meters := 0.0
 			leg.Path = append(leg.Path, pt(from))

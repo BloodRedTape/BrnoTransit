@@ -34,6 +34,9 @@ type mapLeg struct {
 	Dep       string       `json:"d"`
 	Arr       string       `json:"a"`
 	Path      [][2]float64 `json:"p"`
+	Trip      string       `json:"ti,omitempty"`
+	BoardStop string       `json:"bs,omitempty"`
+	BoardUnix int64        `json:"bt,omitempty"`
 }
 
 type mapPage struct {
@@ -72,6 +75,9 @@ func mapURL(j model.Journey, loc *time.Location) string {
 			To:        l.To.Name,
 			Dep:       l.Depart.In(loc).Format("15:04"),
 			Arr:       l.Arrive.In(loc).Format("15:04"),
+		}
+		if !l.IsWalk() && l.TripID != "" {
+			ml.Trip, ml.BoardStop, ml.BoardUnix = l.TripID, l.From.ID, l.Depart.Unix()
 		}
 		for _, p := range l.Path {
 			ml.Path = append(ml.Path, [2]float64{round5(p.Lat), round5(p.Lon)})

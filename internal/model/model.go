@@ -31,6 +31,7 @@ type Leg struct {
 	Mode              Mode
 	Line              Line
 	Headsign          string
+	TripID            string
 	From              Stop
 	To                Stop
 	FromPlatform      string
