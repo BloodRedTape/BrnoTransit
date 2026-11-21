@@ -237,7 +237,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		t = next + 60
 	}
 
-	found = mergeSameRides(found)
+	found = bestPerTripSet(found)
 	out := make([]model.Journey, 0, len(found))
 	for _, j := range found {
 		out = append(out, d.toModel(tt, j))
@@ -279,7 +279,7 @@ func walkSeconds(j raptor.Journey) int32 {
 	return w
 }
 
-func betterOnSameRides(a, b raptor.Journey) bool {
+func betterOnSameTrips(a, b raptor.Journey) bool {
 	if a.Arr != b.Arr {
 		return a.Arr < b.Arr
 	}
@@ -292,24 +292,29 @@ func betterOnSameRides(a, b raptor.Journey) bool {
 	return len(a.Legs) < len(b.Legs)
 }
 
-func mergeSameRides(js []raptor.Journey) []raptor.Journey {
+func tripSetKey(j raptor.Journey) string {
+	var trips []string
+	for _, l := range j.Legs {
+		if !l.Walk {
+			trips = append(trips, fmt.Sprintf("%d.%d", l.Route, l.Trip))
+		}
+	}
+	sort.Strings(trips)
+	return strings.Join(trips, ";")
+}
+
+func bestPerTripSet(js []raptor.Journey) []raptor.Journey {
 	best := map[string]int{}
 	var out []raptor.Journey
 	for _, j := range js {
-		var sb strings.Builder
-		for _, l := range j.Legs {
-			if !l.Walk {
-				fmt.Fprintf(&sb, "%d.%d;", l.Route, l.Trip)
-			}
-		}
-		key := sb.String()
+		key := tripSetKey(j)
 		i, ok := best[key]
 		if !ok {
 			best[key] = len(out)
 			out = append(out, j)
 			continue
 		}
-		if betterOnSameRides(j, out[i]) {
+		if betterOnSameTrips(j, out[i]) {
 			out[i] = j
 		}
 	}
