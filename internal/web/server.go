@@ -34,7 +34,14 @@ type Server struct {
 	live      *live.Tracker
 	stopNames StopNamer
 	trips     TripResolver
+	shapes    ShapeProvider
 }
+
+type ShapeProvider interface {
+	Shape(mode, line string, stops [][2]float64) [][2]float64
+}
+
+func (s *Server) SetShapes(p ShapeProvider) { s.shapes = p }
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {
 	s := &Server{planner: p, stops: stops, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
@@ -145,6 +152,13 @@ func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "invalid route link", http.StatusBadRequest)
 		return
+	}
+	if s.shapes != nil {
+		for i := range legs {
+			if !legs[i].Walk {
+				legs[i].Shape = s.shapes.Shape(legs[i].Mode, legs[i].Line, legs[i].Path)
+			}
+		}
 	}
 	page, err := buildMapPage(legs)
 	if err != nil {

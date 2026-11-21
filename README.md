@@ -16,14 +16,16 @@ with time-limited tickets. This app sorts by **earliest arrival** instead.
   fixed). Each card shows line badges in official colours, platforms,
   intermediate stop count and walking transfers.
 - **Map screen** (`/map`): the route on a vector map, coloured per line, with
-  start/end markers and transfer points.
+  start/end markers and transfer points. Rides follow the real street/track
+  geometry from the city's route layer (see [Route shapes](#route-shapes)).
   - The whole journey is encoded in the link, so map links keep working after
     a server restart.
   - Optional **Live** switch shows the real-time position of the **exact
     vehicles you will ride** in this plan, one per leg. It also shows a status
     line per leg: delay, "trip hasn't started yet, leaves X at HH:MM", or "no
-    live position yet". Updates are pushed via Server-Sent Events (see
-    [Live vehicles](#live-vehicles)).
+    live position yet". While a vehicle is still on its way to your boarding
+    stop, its remaining path is drawn at 40 % opacity. Updates are pushed via
+    Server-Sent Events (see [Live vehicles](#live-vehicles)).
 - **PWA:** installable, with a service worker, an offline fallback page and
   cache-busted assets.
 - **Light/dark theme** following the system setting, including the map style.
@@ -38,16 +40,21 @@ go run ./cmd/server
 
 Then open <http://localhost:8080>.
 
-On first start the GTFS feed (~6 MB) is downloaded to `data/gtfs.zip`.
+On first start two files are downloaded:
+- the GTFS feed (~6 MB) to `data/gtfs.zip`;
+- the route geometry (~2 MB) to `data/routes.geojson`.
 
-| Flag        | Default                                      | Description                                             |
-|-------------|----------------------------------------------|---------------------------------------------------------|
-| `-addr`     | `:8080`                                      | HTTP listen address                                     |
-| `-cache`    | `data/gtfs.zip`                              | Path of the cached GTFS feed                            |
-| `-gtfs-url` | `https://kordis-jmk.cz/gtfs/gtfs.zip`        | GTFS feed URL                                           |
-| `-ttl`      | `4h`                                         | GTFS cache lifetime                                     |
-| `-live-url` | KORDIS stream (see below)                    | Real-time vehicle stream; empty string disables it      |
-| `-mock`     | `false`                                      | Use the mock planner with fake data (UI work offline)   |
+| Flag            | Default                               | Description                                                   |
+|-----------------|---------------------------------------|---------------------------------------------------------------|
+| `-addr`         | `:8080`                               | HTTP listen address                                           |
+| `-cache`        | `data/gtfs.zip`                       | Path of the cached GTFS feed                                  |
+| `-gtfs-url`     | `https://kordis-jmk.cz/gtfs/gtfs.zip` | GTFS feed URL                                                 |
+| `-ttl`          | `4h`                                  | GTFS cache lifetime                                           |
+| `-shapes-url`   | city `transit_routes` layer (GeoJSON) | Route geometry source; empty string disables real shapes      |
+| `-shapes-cache` | `data/routes.geojson`                 | Path of the cached route geometry                             |
+| `-shapes-ttl`   | `168h` (7 days)                       | Route geometry cache lifetime                                 |
+| `-live-url`     | KORDIS stream (see below)             | Real-time vehicle stream; empty string disables it            |
+| `-mock`         | `false`                               | Use the mock planner with fake data (UI work offline)         |
 
 Service workers need HTTPS except on `localhost`. To test the PWA on a phone,
 put the server behind HTTPS (a reverse proxy or a tunnel).
@@ -58,12 +65,14 @@ put the server behind HTTPS (a reverse proxy or a tunnel).
 |-------------------------|-------------------------------------------------------------------------------------------------|
 | Timetables              | GTFS feed from KORDIS JMK (also listed on data.brno.cz)                                          |
 | Real-time positions     | ArcGIS GeoEvent WebSocket `wss://gis.brno.cz/geoevent/ws/services/Kordis_stream/StreamServer/subscribe` |
+| Route geometry          | City of Brno ArcGIS layer `transit_routes` (`services6.arcgis.com/fUWVlHWZNxUvTUh8/.../transit_routes/FeatureServer/0`), listed on data.brno.cz |
 | Base map                | [VersaTiles](https://versatiles.org) vector tiles (`colorful` / `colorful-dark`), © OpenStreetMap contributors |
 | Map renderer            | MapLibre GL JS 5.24.1 from unpkg (loaded with SRI)                                              |
 
 Notes:
-- The feed has no `shapes.txt`. Route lines on the map are therefore straight
-  segments between consecutive stops.
+- The GTFS feed has no `shapes.txt`. Ride geometry therefore comes from the
+  city's `transit_routes` layer and is matched to stops (see
+  [Route shapes](#route-shapes)).
 - The real-time stream sends every vehicle's position once every **~10
   seconds**, in batches. Live markers update at that rate.
 - `LastStopID` / `FinalStopID` in the stream are the numeric part of GTFS stop
@@ -149,15 +158,57 @@ Statuses per leg:
 | `waiting`     | The trip should be running, but no vehicle matched yet                  |
 | `unknown`     | The trip could not be resolved (e.g. the GTFS feed was refreshed)       |
 
+**Approach path.** For a `live` leg, the matched station index tells where the
+vehicle is on its trip. If it has not reached the boarding stop yet, the
+server adds `approach`: the trip's stops from the vehicle's last stop to the
+boarding stop, snapped to route geometry. The client draws it at 40 % opacity
+beneath the route. It is cached per (leg, last stop) for the lifetime of the
+connection.
+
 The SSE endpoint recomputes the state at most every 300 ms when updates
 arrive, and at least every 20 s (together with a keep-alive ping). It sends
 an event only when the state changes.
+
+## Route shapes
+
+`internal/shapes.Store` loads the city's `transit_routes` GeoJSON: about 511
+polylines, several variants per line. It caches the file for 7 days, using the
+same download-validate-rename scheme as the GTFS feed (`internal/filecache`).
+
+**Line names.** GTFS lines are mapped to layer names as follows:
+
+| GTFS line                  | Layer name |
+|----------------------------|------------|
+| tram `9`                   | `T09`      |
+| trolleybus `25`            | `TB25`     |
+| bus `46`                   | `B46`      |
+| night bus `N92`            | `B92`      |
+| train `S3`                 | `V_S3`     |
+| express bus `E56` and others | name as-is |
+
+**Snapping.** A ride is snapped one stop pair at a time. A variant is used
+for a pair when all of these hold:
+
+- both stops lie within 80 m of the variant;
+- the slice between them is no longer than 2.5 × the straight distance +
+  300 m;
+- the slice is taken in either direction: some variants are digitised
+  backwards, so reversed slices are flipped.
+
+The best-scoring slice wins. Pairs without a match stay straight. This
+happens for diversions, where the layer shows the regular route, and for
+lines missing from the layer.
+
+Shapes are added server-side when `/map` is rendered (`Shape` in `mapLeg`),
+so map links stay small.
 
 ## Project layout
 
 ```
 cmd/server/            entry point, flags, wiring
-internal/gtfs/         GTFS zip parser and file cache with TTL
+internal/filecache/    download → validate → atomic replace, TTL checks
+internal/gtfs/         GTFS zip parser and feed cache
+internal/shapes/       route geometry store and stop-to-stop snapping
 internal/raptor/       network, per-day timetable, RAPTOR search
 internal/planner/      Planner/StopDirectory interfaces, GTFS planner, mock planner
 internal/live/         WebSocket client for the real-time stream, in-memory state, pub/sub
@@ -185,8 +236,15 @@ All templates and static files are embedded in the binary.
 
 - No real-time data in routing yet. Cards show "Scheduled". The stream's
   `Delay` could feed into arrival times and transfer feasibility.
-- Route lines on the map are straight segments between stops (no track/road
-  geometry).
+- Route geometry is missing for some lines and does not follow temporary
+  diversions:
+  - tram 7 is absent from the layer;
+  - regional buses are named by licence number (`x_720260`) and cannot be
+    mapped to IDS line numbers.
+
+  Affected stop pairs fall back to straight lines.
+- The approach path starts at the vehicle's last passed stop, not its exact
+  position.
 - Live markers jump every ~10 s. Smooth interpolation or dead-reckoning along
   the route is a planned next step.
 - The vehicle for a trip that has not started yet cannot be predicted (no

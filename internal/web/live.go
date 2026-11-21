@@ -112,6 +112,7 @@ type legState struct {
 	Vehicle   *vehicleJSON `json:"vehicle,omitempty"`
 	StartTime string       `json:"startTime,omitempty"`
 	StartStop string       `json:"startStop,omitempty"`
+	Approach  [][2]float64 `json:"approach,omitempty"`
 }
 
 type tripState struct {
@@ -125,12 +126,13 @@ type trackedLeg struct {
 	dep      string
 }
 
-func matchTrip(v live.Vehicle, s planner.TripSchedule) (time.Duration, bool) {
+func matchTrip(v live.Vehicle, s planner.TripSchedule) (time.Duration, int, bool) {
 	if v.Line != s.Line || v.LastStop == 0 {
-		return 0, false
+		return 0, 0, false
 	}
 	delay := time.Duration(v.Delay) * time.Minute
 	var best time.Duration
+	bestIdx := 0
 	found := false
 	for i, st := range s.Stations {
 		if st != v.LastStop {
@@ -152,10 +154,10 @@ func matchTrip(v live.Vehicle, s planner.TripSchedule) (time.Duration, bool) {
 			diff = -diff
 		}
 		if !found || diff < best {
-			best, found = diff, true
+			best, bestIdx, found = diff, i, true
 		}
 	}
-	return best, found
+	return best, bestIdx, found
 }
 
 func (s *Server) parseTrackedLegs(specs []string) []trackedLeg {
@@ -175,7 +177,22 @@ func (s *Server) parseTrackedLegs(specs []string) []trackedLeg {
 	return legs
 }
 
-func (s *Server) tripState(legs []trackedLeg, lines map[string]bool) tripState {
+func (s *Server) approachPath(sched planner.TripSchedule, from int) [][2]float64 {
+	if from >= sched.BoardIndex || sched.BoardIndex >= len(sched.Points) {
+		return nil
+	}
+	pts := sched.Points[from : sched.BoardIndex+1]
+	if s.shapes != nil {
+		if shaped := s.shapes.Shape(sched.Mode, sched.Line, pts); shaped != nil {
+			return shaped
+		}
+	}
+	return pts
+}
+
+type approachCache map[[2]int][][2]float64
+
+func (s *Server) tripState(legs []trackedLeg, lines map[string]bool, cache approachCache) tripState {
 	vehicles := s.live.Vehicles(lines)
 	now := time.Now()
 	st := tripState{Connected: s.live.Connected(), Legs: make([]legState, len(legs))}
@@ -191,15 +208,23 @@ func (s *Server) tripState(legs []trackedLeg, lines map[string]bool) tripState {
 				}
 			}
 			var best time.Duration
+			lastIdx := 0
 			for _, v := range vehicles {
-				score, ok := matchTrip(v, tl.sched)
+				score, idx, ok := matchTrip(v, tl.sched)
 				if ok && (ls.Vehicle == nil || score < best) {
 					vj := s.vehicleJSON(v)
-					ls.Vehicle, best, ls.Status = &vj, score, "live"
+					ls.Vehicle, best, lastIdx, ls.Status = &vj, score, idx, "live"
 				}
 			}
 			if ls.Vehicle != nil {
 				ls.StartTime, ls.StartStop = "", ""
+				k := [2]int{i, lastIdx}
+				path, ok := cache[k]
+				if !ok {
+					path = s.approachPath(tl.sched, lastIdx)
+					cache[k] = path
+				}
+				ls.Approach = path
 			}
 		}
 		st.Legs[i] = ls
@@ -235,8 +260,9 @@ func (s *Server) handleVehicleStream(w http.ResponseWriter, r *http.Request) {
 	defer unsubscribe()
 
 	var last []byte
+	cache := approachCache{}
 	sendState := func() error {
-		b, err := json.Marshal(s.tripState(legs, lines))
+		b, err := json.Marshal(s.tripState(legs, lines, cache))
 		if err != nil || bytes.Equal(b, last) {
 			return err
 		}

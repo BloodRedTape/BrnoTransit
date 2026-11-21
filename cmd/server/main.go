@@ -14,6 +14,7 @@ import (
 	"brnotransport/internal/gtfs"
 	"brnotransport/internal/live"
 	"brnotransport/internal/planner"
+	"brnotransport/internal/shapes"
 	"brnotransport/internal/web"
 )
 
@@ -24,6 +25,9 @@ func main() {
 	ttl := flag.Duration("ttl", 4*time.Hour, "GTFS cache lifetime")
 	mock := flag.Bool("mock", false, "use mock planner instead of GTFS")
 	liveURL := flag.String("live-url", live.DefaultURL, "realtime vehicle stream (empty disables live positions)")
+	shapesURL := flag.String("shapes-url", shapes.DefaultURL, "route geometry GeoJSON (empty disables real route shapes)")
+	shapesPath := flag.String("shapes-cache", "data/routes.geojson", "path of the cached route geometry")
+	shapesTTL := flag.Duration("shapes-ttl", 7*24*time.Hour, "route geometry cache lifetime")
 	flag.Parse()
 
 	loc, err := time.LoadLocation("Europe/Prague")
@@ -53,6 +57,15 @@ func main() {
 	srv, err := web.NewServer(p, stops, loc)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if *shapesURL != "" {
+		store := shapes.NewStore(*shapesURL, *shapesPath, *shapesTTL)
+		if err := store.Init(ctx); err != nil {
+			log.Printf("shapes: disabled, %v", err)
+		} else {
+			go store.Run(ctx)
+			srv.SetShapes(store)
+		}
 	}
 	if *liveURL != "" {
 		tracker := live.NewTracker(*liveURL)

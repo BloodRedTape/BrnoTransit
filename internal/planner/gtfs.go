@@ -112,9 +112,12 @@ func (p *GTFSPlanner) install(feed *gtfs.Feed) {
 func (p *GTFSPlanner) Stops() []model.Stop { return p.data.Load().stops }
 
 type TripSchedule struct {
-	Line     string
-	Stations []int
-	Arr, Dep []time.Time
+	Line       string
+	Mode       string
+	Stations   []int
+	Points     [][2]float64
+	Arr, Dep   []time.Time
+	BoardIndex int
 }
 
 func (p *GTFSPlanner) TripSchedule(tripID, boardStopID string, boardDep time.Time) (TripSchedule, bool) {
@@ -140,10 +143,13 @@ func (p *GTFSPlanner) TripSchedule(tripID, boardStopID string, boardDep time.Tim
 		return TripSchedule{}, false
 	}
 	base := boardDep.Add(-time.Duration(trip.Times[boardPos].Dep) * time.Second)
-	s := TripSchedule{Line: feed.Routes[trip.Route].ShortName}
+	route := feed.Routes[trip.Route]
+	s := TripSchedule{Line: route.ShortName, Mode: string(modeOf(route.Type)), BoardIndex: boardPos}
 	for _, st := range trip.Times {
-		n, _ := stopNumber(feed.Stops[st.Stop].ID)
+		stop := feed.Stops[st.Stop]
+		n, _ := stopNumber(stop.ID)
 		s.Stations = append(s.Stations, n)
+		s.Points = append(s.Points, [2]float64{stop.Lat, stop.Lon})
 		s.Arr = append(s.Arr, base.Add(time.Duration(st.Arr)*time.Second))
 		s.Dep = append(s.Dep, base.Add(time.Duration(st.Dep)*time.Second))
 	}

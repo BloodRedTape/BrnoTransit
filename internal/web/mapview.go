@@ -37,6 +37,7 @@ type mapLeg struct {
 	Trip      string       `json:"ti,omitempty"`
 	BoardStop string       `json:"bs,omitempty"`
 	BoardUnix int64        `json:"bt,omitempty"`
+	Shape     [][2]float64 `json:"sh,omitempty"`
 }
 
 type mapPage struct {
@@ -108,6 +109,7 @@ func decodeMapToken(token string) ([]mapLeg, error) {
 	}
 	for i := range legs {
 		l := &legs[i]
+		l.Shape = nil
 		if len(l.Path) < 2 || len(l.Path) > maxLegPoints {
 			return nil, errors.New("bad map token")
 		}

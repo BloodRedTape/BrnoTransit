@@ -145,7 +145,8 @@ function routeGeoJSON(legs, scheme) {
   legs.forEach((leg, i) => {
     const color = legColor(leg, scheme);
     const coords = leg.p.map(lonLat);
-    lines.push({ type: "Feature", properties: { color, walk: !!leg.w }, geometry: { type: "LineString", coordinates: coords } });
+    const drawn = (leg.sh && leg.sh.length > 1 ? leg.sh : leg.p).map(lonLat);
+    lines.push({ type: "Feature", properties: { color, walk: !!leg.w }, geometry: { type: "LineString", coordinates: drawn } });
     if (leg.w) return;
     coords.forEach((c, k) => {
       const edge = k === 0 || k === coords.length - 1;
@@ -240,6 +241,29 @@ function initLiveVehicles(map, legs) {
   const markers = new Map();
   let source = null;
   let reopenTimer = null;
+  let approach = { type: "FeatureCollection", features: [] };
+
+  const syncApproach = () => {
+    try {
+      const src = map.getSource("live-approach");
+      if (src) {
+        src.setData(approach);
+        return;
+      }
+      if (!map.getLayer("route-casing")) return;
+      map.addSource("live-approach", { type: "geojson", data: approach });
+      map.addLayer({
+        id: "live-approach", type: "line", source: "live-approach",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": ["get", "color"], "line-width": 6, "line-opacity": 0.4 },
+      }, "route-casing");
+    } catch {}
+  };
+  map.on("style.load", syncApproach);
+  const setApproach = (features) => {
+    approach = { type: "FeatureCollection", features };
+    syncApproach();
+  };
 
   const setStatus = (lines) => {
     status.replaceChildren(...lines.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
@@ -271,6 +295,9 @@ function initLiveVehicles(map, legs) {
         markers.delete(i);
       }
     }
+    setApproach(state.legs.flatMap((ls, i) => (ls.status === "live" && ls.approach && ls.approach.length > 1 && rides[i]
+      ? [{ type: "Feature", properties: { color: legColor(rides[i], currentScheme()) }, geometry: { type: "LineString", coordinates: ls.approach.map(lonLat) } }]
+      : [])));
     const lines = state.legs.map((ls, i) => liveLegText(rides[i] || {}, ls));
     if (!state.connected && !seen.size) lines.unshift("Live positions are unavailable right now");
     setStatus(lines);
@@ -304,6 +331,7 @@ function initLiveVehicles(map, legs) {
     else {
       close();
       clearMarkers();
+      setApproach([]);
       setStatus([]);
     }
   });
@@ -326,7 +354,7 @@ function initRouteMap() {
   }
   const legs = JSON.parse(el.dataset.map);
   const bounds = new maplibregl.LngLatBounds();
-  legs.forEach((l) => l.p.forEach((p) => bounds.extend(lonLat(p))));
+  legs.forEach((l) => (l.sh || l.p).forEach((p) => bounds.extend(lonLat(p))));
 
   let scheme = currentScheme();
   const map = new maplibregl.Map({
