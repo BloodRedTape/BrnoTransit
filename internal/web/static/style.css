@@ -148,7 +148,7 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
   min-width: 36px; padding: 4px 8px;
   border-radius: 7px;
   background: var(--line);
-  color: #fff; font-weight: 700; text-align: center;
+  color: var(--line-text, #fff); font-weight: 700; text-align: center;
 }
 
 .timeline { padding: 2px 0 14px; }

@@ -53,6 +53,8 @@ type legView struct {
 	Mode         string
 	Line         string
 	Color        template.CSS
+	TextColor    template.CSS
+	Headsign     string
 	DepartTime   string
 	ArriveTime   string
 	From         string
@@ -83,6 +85,8 @@ func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location) []
 				Mode:         string(l.Mode),
 				Line:         l.Line.Name,
 				Color:        template.CSS(l.Line.Color),
+				TextColor:    template.CSS(orDefault(l.Line.TextColor, "#ffffff")),
+				Headsign:     l.Headsign,
 				DepartTime:   l.Depart.In(loc).Format("15:04"),
 				ArriveTime:   l.Arrive.In(loc).Format("15:04"),
 				From:         l.From.Name,
@@ -97,6 +101,13 @@ func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location) []
 		out = append(out, jv)
 	}
 	return out
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 func formatKm(m int) string {

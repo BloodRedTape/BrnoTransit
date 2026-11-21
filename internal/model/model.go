@@ -8,6 +8,7 @@ const (
 	Tram       Mode = "tram"
 	Bus        Mode = "bus"
 	Trolleybus Mode = "trolleybus"
+	Train      Mode = "train"
 	Walk       Mode = "walk"
 )
 
@@ -17,13 +18,15 @@ type Stop struct {
 }
 
 type Line struct {
-	Name  string
-	Color string
+	Name      string
+	Color     string
+	TextColor string
 }
 
 type Leg struct {
 	Mode              Mode
 	Line              Line
+	Headsign          string
 	From              Stop
 	To                Stop
 	FromPlatform      string

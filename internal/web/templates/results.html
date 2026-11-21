@@ -15,13 +15,13 @@
   </div>
   {{range .Legs}}
   {{if .Walk}}
-  <div class="walk-row muted">{{template "icon-walk"}}<span>Walk {{.WalkMinutes}} min</span><span class="walk-detail">platform {{.FromPlatform}} &rarr; {{.ToPlatform}}</span></div>
+  <div class="walk-row muted">{{template "icon-walk"}}<span>Walk {{.WalkMinutes}} min</span><span class="walk-detail">{{if eq .From .To}}platform {{.FromPlatform}} &rarr; {{.ToPlatform}}{{else}}to {{.To}} {{.ToPlatform}}{{end}}</span></div>
   {{else}}
-  <section class="leg" style="--line: {{.Color}}">
+  <section class="leg" style="--line: {{.Color}}; --line-text: {{.TextColor}}">
     <div class="leg-head">
       {{template "icon-mode" .Mode}}
       <span class="badge">{{.Line}}</span>
-      <span class="leg-dir muted">{{.Mode}}</span>
+      <span class="leg-dir muted">{{if .Headsign}}&rarr; {{.Headsign}}{{else}}{{.Mode}}{{end}}</span>
     </div>
     <div class="timeline">
       <div class="stop">
@@ -37,7 +37,7 @@
         <span class="time">{{.ArriveTime}}</span>
         <div class="stop-info">
           <div class="stop-name">{{.To}} <span class="platform">{{.ToPlatform}}</span></div>
-          {{if gt .DelayMinutes 0}}<div class="status late">delay {{.DelayMinutes}} {{plural .DelayMinutes "minute" "minutes"}}</div>{{else}}<div class="status ontime">On time</div>{{end}}
+          {{if gt .DelayMinutes 0}}<div class="status late">delay {{.DelayMinutes}} {{plural .DelayMinutes "minute" "minutes"}}</div>{{else}}<div class="status muted">Scheduled</div>{{end}}
         </div>
       </div>
     </div>
