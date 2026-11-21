@@ -81,6 +81,8 @@ type Feed struct {
 	Transfers []Transfer
 }
 
+const MaxUncompressed = 1 << 30
+
 func DateKey(t time.Time) int {
 	y, m, d := t.Date()
 	return y*10000 + int(m)*100 + d
@@ -94,8 +96,13 @@ func Load(path string) (*Feed, error) {
 	defer zr.Close()
 
 	files := make(map[string]*zip.File, len(zr.File))
+	var total uint64
 	for _, f := range zr.File {
 		files[f.Name] = f
+		total += f.UncompressedSize64
+	}
+	if total > MaxUncompressed {
+		return nil, fmt.Errorf("gtfs: uncompressed size %d exceeds limit %d", total, uint64(MaxUncompressed))
 	}
 
 	p := &parser{

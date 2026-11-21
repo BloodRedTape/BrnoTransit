@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"html/template"
@@ -14,6 +15,8 @@ import (
 	"brnotransport/internal/live"
 	"brnotransport/internal/planner"
 )
+
+const planTimeout = 10 * time.Second
 
 //go:embed templates/*.html
 var templateFS embed.FS
@@ -31,6 +34,9 @@ type Server struct {
 	version       string
 	serviceWorker []byte
 
+	signer mapSigner
+	limits *limits
+
 	live      *live.Tracker
 	stopNames StopNamer
 	trips     TripResolver
@@ -44,7 +50,15 @@ type ShapeProvider interface {
 func (s *Server) SetShapes(p ShapeProvider) { s.shapes = p }
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {
-	s := &Server{planner: p, stops: stops, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
+	s := &Server{
+		planner: p,
+		stops:   stops,
+		loc:     loc,
+		now:     time.Now,
+		pages:   map[string]*template.Template{},
+		signer:  newMapSigner(),
+		limits:  newLimits(),
+	}
 	static, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return nil, err
@@ -70,18 +84,19 @@ func (s *Server) Handler() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	l := s.limits
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("GET /search", s.handleSearch)
-	mux.HandleFunc("GET /map", s.handleMap)
+	mux.Handle("GET /search", l.heavyWork(http.HandlerFunc(s.handleSearch)))
+	mux.Handle("GET /map", l.heavyWork(http.HandlerFunc(s.handleMap)))
 	mux.HandleFunc("GET /offline", s.handleOffline)
-	mux.HandleFunc("GET /api/vehicles", s.handleVehicles)
-	mux.HandleFunc("GET /api/vehicles/stream", s.handleVehicleStream)
+	mux.Handle("GET /api/vehicles", rateLimit(l.api, http.HandlerFunc(s.handleVehicles)))
+	mux.Handle("GET /api/vehicles/stream", l.stream(http.HandlerFunc(s.handleVehicleStream)))
 	mux.HandleFunc("GET /sw.js", s.handleServiceWorker)
 	mux.HandleFunc("GET /manifest.webmanifest", s.handleManifest)
 	mux.Handle("GET /favicon.ico", http.RedirectHandler(s.asset("icons/favicon-32.png"), http.StatusMovedPermanently))
 	mux.Handle("GET /static/", staticCache(http.StripPrefix("/static/", http.FileServerFS(static))))
-	return mux
+	return securityHeaders(rateLimit(l.general, mux))
 }
 
 type indexPage struct {
@@ -122,10 +137,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := s.now().In(s.loc)
-	journeys, err := s.planner.Plan(r.Context(), from, to, now)
+	ctx, cancel := context.WithTimeout(r.Context(), planTimeout)
+	defer cancel()
+	journeys, err := s.planner.Plan(ctx, from, to, now)
 	if err != nil {
 		if errors.Is(err, planner.ErrUnknownStop) {
 			s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, "Unknown stop."))
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("plan %q -> %q: timed out", from, to)
+			http.Error(w, "planning took too long, try again", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Context().Err() != nil {
 			return
 		}
 		log.Printf("plan %q -> %q: %v", from, to, err)
@@ -143,14 +168,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		To:       toStop.Name,
 		BackURL:  "/?" + back.Encode(),
 		SortedBy: "Fastest arrival",
-		Journeys: buildJourneyViews(journeys, now, s.loc),
+		Journeys: buildJourneyViews(journeys, now, s.loc, s.signer),
 	})
 }
 
 func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
-	legs, err := decodeMapToken(r.URL.Query().Get("j"))
+	token := r.URL.Query().Get("j")
+	legs, err := s.signer.decode(token)
 	if err != nil {
-		http.Error(w, "invalid route link", http.StatusBadRequest)
+		http.Redirect(w, r, fallbackURL(token), http.StatusSeeOther)
 		return
 	}
 	if s.shapes != nil {

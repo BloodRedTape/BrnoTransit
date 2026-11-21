@@ -67,7 +67,7 @@ type legView struct {
 	WalkMinutes  int
 }
 
-func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location) []journeyView {
+func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location, signer mapSigner) []journeyView {
 	out := make([]journeyView, 0, len(js))
 	for _, j := range js {
 		in := int(math.Ceil(j.Departure().Sub(now).Minutes()))
@@ -79,7 +79,7 @@ func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location) []
 			Soon:        in <= soonThreshold,
 			DurationMin: int(j.Duration().Round(time.Minute).Minutes()),
 			DistanceKm:  formatKm(j.DistanceMeters()),
-			MapURL:      mapURL(j, loc),
+			MapURL:      signer.mapURL(j, loc),
 		}
 		for _, l := range j.Legs {
 			jv.Legs = append(jv.Legs, legView{

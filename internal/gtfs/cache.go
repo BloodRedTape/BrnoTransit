@@ -9,14 +9,15 @@ import (
 )
 
 type Cache struct {
-	URL    string
-	Path   string
-	TTL    time.Duration
-	Client *http.Client
+	URL      string
+	Path     string
+	TTL      time.Duration
+	MaxBytes int64
+	Client   *http.Client
 }
 
 func (c *Cache) file() *filecache.File {
-	return &filecache.File{URL: c.URL, Path: c.Path, TTL: c.TTL, Client: c.Client}
+	return &filecache.File{URL: c.URL, Path: c.Path, TTL: c.TTL, MaxBytes: c.MaxBytes, Client: c.Client}
 }
 
 func (c *Cache) Age() (time.Duration, bool) { return c.file().Age() }

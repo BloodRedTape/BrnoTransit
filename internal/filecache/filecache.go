@@ -10,11 +10,14 @@ import (
 	"time"
 )
 
+const DefaultMaxBytes = 1 << 30
+
 type File struct {
-	URL    string
-	Path   string
-	TTL    time.Duration
-	Client *http.Client
+	URL      string
+	Path     string
+	TTL      time.Duration
+	MaxBytes int64
+	Client   *http.Client
 }
 
 func (f *File) Age() (time.Duration, bool) {
@@ -67,11 +70,22 @@ func (f *File) download(ctx context.Context, dst string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: %s", f.URL, resp.Status)
 	}
+	limit := f.MaxBytes
+	if limit <= 0 {
+		limit = DefaultMaxBytes
+	}
+	if resp.ContentLength > limit {
+		return fmt.Errorf("download %s: size %d exceeds limit %d", f.URL, resp.ContentLength, limit)
+	}
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
+	n, err := io.Copy(out, io.LimitReader(resp.Body, limit+1))
+	if err == nil && n > limit {
+		err = fmt.Errorf("download %s: exceeds limit %d", f.URL, limit)
+	}
+	if err != nil {
 		out.Close()
 		return err
 	}

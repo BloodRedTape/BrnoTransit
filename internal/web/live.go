@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	maxTrackedLegs   = 10
-	earlyTolerance   = 2 * time.Minute
-	lateTolerance    = 3 * time.Minute
-	layoverAllowance = 15 * time.Minute
-	maxLiveLines     = 20
-	streamBatchEvery = 300 * time.Millisecond
-	streamPingEvery  = 20 * time.Second
+	maxTrackedLegs     = 10
+	earlyTolerance     = 2 * time.Minute
+	lateTolerance      = 3 * time.Minute
+	layoverAllowance   = 15 * time.Minute
+	maxLiveLines       = 20
+	streamBatchEvery   = 300 * time.Millisecond
+	streamPingEvery    = 20 * time.Second
+	streamWriteTimeout = 30 * time.Second
 )
 
 type StopNamer interface {
@@ -252,6 +253,12 @@ func (s *Server) handleVehicleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Time{}); err != nil {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	extendWrite := func() { rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout)) }
+	extendWrite()
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("X-Accel-Buffering", "no")
@@ -267,6 +274,7 @@ func (s *Server) handleVehicleStream(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		last = b
+		extendWrite()
 		if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", b); err != nil {
 			return err
 		}
@@ -303,6 +311,7 @@ func (s *Server) handleVehicleStream(w http.ResponseWriter, r *http.Request) {
 			if err := sendState(); err != nil {
 				return
 			}
+			extendWrite()
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
 			}
