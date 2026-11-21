@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,7 @@ type dataset struct {
 	stops    []model.Stop
 	byName   map[string]int
 	byFold   map[string]int
+	byNumber map[int]string
 
 	mu   sync.Mutex
 	days map[int]*raptor.Timetable
@@ -107,6 +109,26 @@ func (p *GTFSPlanner) install(feed *gtfs.Feed) {
 }
 
 func (p *GTFSPlanner) Stops() []model.Stop { return p.data.Load().stops }
+
+func (p *GTFSPlanner) StopNameByNumber(n int) (string, bool) {
+	name, ok := p.data.Load().byNumber[n]
+	return name, ok
+}
+
+func stopNumber(id string) (int, bool) {
+	if len(id) < 2 || id[0] != 'U' {
+		return 0, false
+	}
+	end := 1
+	for end < len(id) && id[end] >= '0' && id[end] <= '9' {
+		end++
+	}
+	if end == 1 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(id[1:end])
+	return n, err == nil
+}
 
 func (p *GTFSPlanner) Lookup(name string) (model.Stop, bool) {
 	d := p.data.Load()
@@ -225,7 +247,14 @@ func mergeSameRides(js []raptor.Journey) []raptor.Journey {
 
 func newDataset(feed *gtfs.Feed, loc *time.Location) *dataset {
 	net := raptor.NewNetwork(feed)
-	d := &dataset{net: net, loc: loc, byName: map[string]int{}, byFold: map[string]int{}, days: map[int]*raptor.Timetable{}}
+	d := &dataset{net: net, loc: loc, byName: map[string]int{}, byFold: map[string]int{}, byNumber: map[int]string{}, days: map[int]*raptor.Timetable{}}
+	for _, s := range feed.Stops {
+		if n, ok := stopNumber(s.ID); ok {
+			if _, seen := d.byNumber[n]; !seen || s.Station {
+				d.byNumber[n] = s.Name
+			}
+		}
+	}
 
 	parentOf := func(i int) int {
 		s := feed.Stops[i]

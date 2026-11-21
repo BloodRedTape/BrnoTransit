@@ -10,7 +10,13 @@
 <div class="map-head">
   <span class="map-times">{{.Dep}} &rarr; {{.Arr}}</span>
   <span class="muted">{{.Duration}} min</span>
+  <label class="switch">
+    <input type="checkbox" id="live-toggle" role="switch">
+    <span class="switch-track" aria-hidden="true"></span>
+    <span>Live</span>
+  </label>
 </div>
+<p class="live-status muted small" id="live-status" hidden></p>
 
 <div id="route-map" class="route-map" data-map="{{.MapJSON}}"></div>
 

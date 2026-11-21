@@ -188,6 +188,143 @@ function addRouteLayers(map, legs, scheme) {
   });
 }
 
+const LIVE_REFRESH_MS = 5000;
+const LIVE_PREF_KEY = "liveVehicles";
+const NEAR_ROUTE_M = 1000;
+
+function routeSegments(legs) {
+  const segs = [];
+  for (const leg of legs) {
+    for (let i = 1; i < leg.p.length; i++) segs.push([leg.p[i - 1], leg.p[i]]);
+  }
+  return segs;
+}
+
+function distanceToSegmentM([lat, lon], [[lat1, lon1], [lat2, lon2]]) {
+  const kx = 111320 * Math.cos((lat * Math.PI) / 180);
+  const ky = 110540;
+  const ax = (lon1 - lon) * kx, ay = (lat1 - lat) * ky;
+  const bx = (lon2 - lon) * kx, by = (lat2 - lat) * ky;
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+
+const nearRoute = (v, segs) => segs.some((seg) => distanceToSegmentM([v.lat, v.lon], seg) <= NEAR_ROUTE_M);
+
+function relevantVehicles(vehicles, rides) {
+  const picked = new Map();
+  for (const leg of rides) {
+    const ofLine = vehicles.filter((v) => v.line === leg.l);
+    const sameDir = leg.h ? ofLine.filter((v) => v.final && fold(v.final) === fold(leg.h)) : [];
+    for (const v of sameDir.length ? sameDir : ofLine) {
+      if (!picked.has(v.id)) picked.set(v.id, { v, leg });
+    }
+  }
+  return [...picked.values()];
+}
+
+function vehicleElement() {
+  const el = document.createElement("div");
+  el.className = "veh";
+  el.innerHTML = '<span class="veh-arrow"></span><span class="veh-num"></span><span class="veh-delay"></span>';
+  return el;
+}
+
+function updateVehicleElement(el, v, leg) {
+  el.style.setProperty("--line", leg.c);
+  el.style.setProperty("--line-text", leg.tc || "#fff");
+  el.querySelector(".veh-num").textContent = v.line;
+  const arrow = el.querySelector(".veh-arrow");
+  arrow.hidden = !(v.bearing >= 0);
+  arrow.style.transform = `rotate(${v.bearing}deg)`;
+  const delay = el.querySelector(".veh-delay");
+  delay.hidden = !(v.delay > 0);
+  delay.textContent = `+${v.delay}`;
+  const dest = v.final ? ` → ${v.final}` : "";
+  el.title = `${v.line}${dest} · ${v.delay > 0 ? `delay ${v.delay} min` : "on time"}`;
+}
+
+function initLiveVehicles(map, legs) {
+  const toggle = document.getElementById("live-toggle");
+  const status = document.getElementById("live-status");
+  if (!toggle) return;
+  const rides = legs.filter((l) => !l.w && l.l);
+  const lines = [...new Set(rides.map((l) => l.l))];
+  if (!lines.length) {
+    toggle.closest(".switch").hidden = true;
+    return;
+  }
+  const segs = routeSegments(legs);
+  const markers = new Map();
+  let timer = null;
+
+  const setStatus = (text) => {
+    status.hidden = !text;
+    status.textContent = text || "";
+  };
+  const clearMarkers = () => {
+    markers.forEach((m) => m.remove());
+    markers.clear();
+  };
+
+  async function refresh() {
+    try {
+      const res = await fetch(`/api/vehicles?lines=${encodeURIComponent(lines.join(","))}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      const shown = relevantVehicles(await res.json(), rides).filter(({ v }) => nearRoute(v, segs));
+      const seen = new Set();
+      for (const { v, leg } of shown) {
+        seen.add(v.id);
+        let m = markers.get(v.id);
+        if (!m) {
+          m = new maplibregl.Marker({ element: vehicleElement(), anchor: "center" }).setLngLat([v.lon, v.lat]).addTo(map);
+          markers.set(v.id, m);
+        }
+        m.setLngLat([v.lon, v.lat]);
+        updateVehicleElement(m.getElement(), v, leg);
+      }
+      for (const [id, m] of markers) {
+        if (!seen.has(id)) {
+          m.remove();
+          markers.delete(id);
+        }
+      }
+      setStatus(shown.length ? `${shown.length} ${shown.length === 1 ? "vehicle" : "vehicles"} of line ${lines.join(", ")} · live` : `No vehicles of line ${lines.join(", ")} near your route right now`);
+    } catch {
+      setStatus("Live positions are unavailable right now");
+    }
+  }
+
+  const start = () => {
+    if (timer || document.hidden) return;
+    refresh();
+    timer = setInterval(refresh, LIVE_REFRESH_MS);
+  };
+  const stop = () => {
+    clearInterval(timer);
+    timer = null;
+  };
+
+  toggle.addEventListener("change", () => {
+    localStorage.setItem(LIVE_PREF_KEY, toggle.checked ? "1" : "0");
+    if (toggle.checked) start();
+    else {
+      stop();
+      clearMarkers();
+      setStatus("");
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!toggle.checked) return;
+    if (document.hidden) stop();
+    else start();
+  });
+  toggle.checked = localStorage.getItem(LIVE_PREF_KEY) === "1";
+  if (toggle.checked) start();
+}
+
 function initRouteMap() {
   const el = document.getElementById("route-map");
   if (!el) return;
@@ -240,6 +377,8 @@ function initRouteMap() {
     .setLngLat(lonLat(first.p[0])).addTo(map);
   new maplibregl.Marker({ element: endpointMarker("end", last.t), anchor: "bottom-left", offset: [-14, 0] })
     .setLngLat(lonLat(last.p[last.p.length - 1])).addTo(map);
+
+  initLiveVehicles(map, legs);
 }
 
 function initHistoryBack() {

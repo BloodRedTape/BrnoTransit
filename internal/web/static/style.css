@@ -336,3 +336,66 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
 @media (min-width: 600px) {
   .app { padding-top: 32px; }
 }
+
+.switch {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none;
+  font-size: .95rem;
+}
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track {
+  position: relative;
+  width: 40px; height: 24px; border-radius: 12px;
+  background: var(--line-sep);
+  transition: background .15s;
+}
+.switch-track::after {
+  content: "";
+  position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  transition: transform .15s;
+}
+.switch input:checked + .switch-track { background: var(--green); }
+.switch input:checked + .switch-track::after { transform: translateX(16px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.live-status { margin: -4px 0 10px; }
+
+.veh {
+  position: relative;
+  width: 30px; height: 30px;
+  cursor: default;
+}
+.veh-num {
+  position: absolute; inset: 3px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--line-text, #fff);
+  font: 700 11px/1 "Open Sans", "Segoe UI", system-ui, sans-serif;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 6px var(--shadow);
+}
+.veh-arrow {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+.veh-arrow::before {
+  content: "";
+  position: absolute; left: 50%; top: -5px;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 8px solid var(--line);
+}
+.veh-delay {
+  position: absolute; right: -10px; top: -8px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--red); color: #fff;
+  font: 700 10px/1.2 "Open Sans", "Segoe UI", system-ui, sans-serif;
+}
+.veh-delay[hidden], .veh-arrow[hidden] { display: none; }

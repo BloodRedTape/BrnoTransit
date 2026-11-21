@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"brnotransport/internal/live"
 	"brnotransport/internal/planner"
 )
 
@@ -29,6 +30,9 @@ type Server struct {
 
 	version       string
 	serviceWorker []byte
+
+	live      *live.Tracker
+	stopNames StopNamer
 }
 
 func NewServer(p planner.Planner, stops planner.StopDirectory, loc *time.Location) (*Server, error) {
@@ -63,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /map", s.handleMap)
 	mux.HandleFunc("GET /offline", s.handleOffline)
+	mux.HandleFunc("GET /api/vehicles", s.handleVehicles)
 	mux.HandleFunc("GET /sw.js", s.handleServiceWorker)
 	mux.HandleFunc("GET /manifest.webmanifest", s.handleManifest)
 	mux.Handle("GET /favicon.ico", http.RedirectHandler(s.asset("icons/favicon-32.png"), http.StatusMovedPermanently))

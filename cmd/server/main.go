@@ -11,6 +11,7 @@ import (
 	_ "time/tzdata"
 
 	"brnotransport/internal/gtfs"
+	"brnotransport/internal/live"
 	"brnotransport/internal/planner"
 	"brnotransport/internal/web"
 )
@@ -21,6 +22,7 @@ func main() {
 	feedURL := flag.String("gtfs-url", "https://kordis-jmk.cz/gtfs/gtfs.zip", "GTFS feed URL")
 	ttl := flag.Duration("ttl", 4*time.Hour, "GTFS cache lifetime")
 	mock := flag.Bool("mock", false, "use mock planner instead of GTFS")
+	liveURL := flag.String("live-url", live.DefaultURL, "realtime vehicle stream (empty disables live positions)")
 	flag.Parse()
 
 	loc, err := time.LoadLocation("Europe/Prague")
@@ -33,6 +35,7 @@ func main() {
 
 	var p planner.Planner
 	var stops planner.StopDirectory
+	var names web.StopNamer
 	if *mock {
 		ms := planner.MockStops()
 		p, stops = planner.NewMockPlanner(ms), ms
@@ -42,12 +45,17 @@ func main() {
 			log.Fatal(err)
 		}
 		go gp.Run(ctx)
-		p, stops = gp, gp
+		p, stops, names = gp, gp, gp
 	}
 
 	srv, err := web.NewServer(p, stops, loc)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if *liveURL != "" {
+		tracker := live.NewTracker(*liveURL)
+		go tracker.Run(ctx)
+		srv.SetLive(tracker, names)
 	}
 
 	httpSrv := &http.Server{
