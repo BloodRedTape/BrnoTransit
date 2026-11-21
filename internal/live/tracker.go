@@ -33,17 +33,49 @@ type Vehicle struct {
 	Course    string
 	LowFloor  bool
 	Updated   time.Time
+	Gone      bool
+}
+
+const subscriberBuffer = 1024
+
+type subscriber struct {
+	lines map[string]bool
+	ch    chan Vehicle
 }
 
 type Tracker struct {
 	url       string
 	mu        sync.RWMutex
 	vehicles  map[int]Vehicle
+	subs      map[*subscriber]struct{}
 	connected atomic.Bool
 }
 
 func NewTracker(url string) *Tracker {
-	return &Tracker{url: url, vehicles: map[int]Vehicle{}}
+	return &Tracker{url: url, vehicles: map[int]Vehicle{}, subs: map[*subscriber]struct{}{}}
+}
+
+func (t *Tracker) Subscribe(lines map[string]bool) (<-chan Vehicle, func()) {
+	s := &subscriber{lines: lines, ch: make(chan Vehicle, subscriberBuffer)}
+	t.mu.Lock()
+	t.subs[s] = struct{}{}
+	t.mu.Unlock()
+	return s.ch, func() {
+		t.mu.Lock()
+		delete(t.subs, s)
+		t.mu.Unlock()
+	}
+}
+
+func (t *Tracker) publishLocked(v Vehicle) {
+	for s := range t.subs {
+		if s.lines[v.Line] {
+			select {
+			case s.ch <- v:
+			default:
+			}
+		}
+	}
 }
 
 func (t *Tracker) Connected() bool { return t.connected.Load() }
@@ -128,7 +160,10 @@ func (t *Tracker) store(m message) {
 	id := int(a.ID)
 	if a.IsInactive == "true" || a.LineName == "" {
 		t.mu.Lock()
-		delete(t.vehicles, id)
+		if old, ok := t.vehicles[id]; ok {
+			delete(t.vehicles, id)
+			t.publishLocked(Vehicle{ID: id, Line: old.Line, Gone: true})
+		}
 		t.mu.Unlock()
 		return
 	}
@@ -150,7 +185,11 @@ func (t *Tracker) store(m message) {
 		Updated:   updated,
 	}
 	t.mu.Lock()
+	if old, ok := t.vehicles[id]; ok && old.Line != v.Line {
+		t.publishLocked(Vehicle{ID: id, Line: old.Line, Gone: true})
+	}
 	t.vehicles[id] = v
+	t.publishLocked(v)
 	t.mu.Unlock()
 }
 
@@ -160,6 +199,7 @@ func (t *Tracker) prune() {
 	for id, v := range t.vehicles {
 		if v.Updated.Before(cutoff) {
 			delete(t.vehicles, id)
+			t.publishLocked(Vehicle{ID: id, Line: v.Line, Gone: true})
 		}
 	}
 	t.mu.Unlock()

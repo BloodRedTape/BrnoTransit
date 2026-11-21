@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /map", s.handleMap)
 	mux.HandleFunc("GET /offline", s.handleOffline)
 	mux.HandleFunc("GET /api/vehicles", s.handleVehicles)
+	mux.HandleFunc("GET /api/vehicles/stream", s.handleVehicleStream)
 	mux.HandleFunc("GET /sw.js", s.handleServiceWorker)
 	mux.HandleFunc("GET /manifest.webmanifest", s.handleManifest)
 	mux.Handle("GET /favicon.ico", http.RedirectHandler(s.asset("icons/favicon-32.png"), http.StatusMovedPermanently))

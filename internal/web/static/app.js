@@ -188,7 +188,7 @@ function addRouteLayers(map, legs, scheme) {
   });
 }
 
-const LIVE_REFRESH_MS = 5000;
+const LIVE_STALE_S = 300;
 const LIVE_PREF_KEY = "liveVehicles";
 const NEAR_ROUTE_M = 1000;
 
@@ -257,8 +257,12 @@ function initLiveVehicles(map, legs) {
     return;
   }
   const segs = routeSegments(legs);
+  const vehicles = new Map();
   const markers = new Map();
-  let timer = null;
+  let source = null;
+  let reopenTimer = null;
+  let pruneTimer = null;
+  let upstreamDown = false;
 
   const setStatus = (text) => {
     status.hidden = !text;
@@ -269,60 +273,91 @@ function initLiveVehicles(map, legs) {
     markers.clear();
   };
 
-  async function refresh() {
-    try {
-      const res = await fetch(`/api/vehicles?lines=${encodeURIComponent(lines.join(","))}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(String(res.status));
-      const shown = relevantVehicles(await res.json(), rides).filter(({ v }) => nearRoute(v, segs));
-      const seen = new Set();
-      for (const { v, leg } of shown) {
-        seen.add(v.id);
-        let m = markers.get(v.id);
-        if (!m) {
-          m = new maplibregl.Marker({ element: vehicleElement(), anchor: "center" }).setLngLat([v.lon, v.lat]).addTo(map);
-          markers.set(v.id, m);
-        }
-        m.setLngLat([v.lon, v.lat]);
-        updateVehicleElement(m.getElement(), v, leg);
+  function render() {
+    const cutoff = Date.now() / 1000 - LIVE_STALE_S;
+    for (const [id, v] of vehicles) if (v.updated < cutoff) vehicles.delete(id);
+    const shown = relevantVehicles([...vehicles.values()], rides).filter(({ v }) => nearRoute(v, segs));
+    const seen = new Set();
+    for (const { v, leg } of shown) {
+      seen.add(v.id);
+      let m = markers.get(v.id);
+      if (!m) {
+        m = new maplibregl.Marker({ element: vehicleElement(), anchor: "center" }).setLngLat([v.lon, v.lat]).addTo(map);
+        markers.set(v.id, m);
       }
-      for (const [id, m] of markers) {
-        if (!seen.has(id)) {
-          m.remove();
-          markers.delete(id);
-        }
-      }
-      setStatus(shown.length ? `${shown.length} ${shown.length === 1 ? "vehicle" : "vehicles"} of line ${lines.join(", ")} · live` : `No vehicles of line ${lines.join(", ")} near your route right now`);
-    } catch {
-      setStatus("Live positions are unavailable right now");
+      m.setLngLat([v.lon, v.lat]);
+      updateVehicleElement(m.getElement(), v, leg);
     }
+    for (const [id, m] of markers) {
+      if (!seen.has(id)) {
+        m.remove();
+        markers.delete(id);
+      }
+    }
+    const lineText = `line ${lines.join(", ")}`;
+    if (shown.length) setStatus(`${shown.length} ${shown.length === 1 ? "vehicle" : "vehicles"} of ${lineText} · live`);
+    else if (upstreamDown) setStatus("Live positions are unavailable right now");
+    else setStatus(`No vehicles of ${lineText} near your route right now`);
   }
 
-  const start = () => {
-    if (timer || document.hidden) return;
-    refresh();
-    timer = setInterval(refresh, LIVE_REFRESH_MS);
+  const apply = (list) => {
+    for (const v of list) {
+      if (v.gone) vehicles.delete(v.id);
+      else vehicles.set(v.id, v);
+    }
+    render();
   };
-  const stop = () => {
-    clearInterval(timer);
-    timer = null;
-  };
+
+  function open() {
+    if (source || document.hidden) return;
+    clearTimeout(reopenTimer);
+    source = new EventSource(`/api/vehicles/stream?lines=${encodeURIComponent(lines.join(","))}`);
+    source.addEventListener("snapshot", (e) => {
+      const snap = JSON.parse(e.data);
+      upstreamDown = !snap.connected && !snap.vehicles.length;
+      vehicles.clear();
+      apply(snap.vehicles);
+    });
+    source.addEventListener("update", (e) => {
+      upstreamDown = false;
+      apply(JSON.parse(e.data));
+    });
+    source.addEventListener("error", () => {
+      if (source.readyState === EventSource.CLOSED) {
+        close();
+        setStatus("Live positions are unavailable right now");
+        reopenTimer = setTimeout(open, 15000);
+      } else {
+        setStatus("Reconnecting to live positions…");
+      }
+    });
+    pruneTimer = setInterval(render, 30000);
+  }
+
+  function close() {
+    source?.close();
+    source = null;
+    clearInterval(pruneTimer);
+    clearTimeout(reopenTimer);
+  }
 
   toggle.addEventListener("change", () => {
     localStorage.setItem(LIVE_PREF_KEY, toggle.checked ? "1" : "0");
-    if (toggle.checked) start();
+    if (toggle.checked) open();
     else {
-      stop();
+      close();
+      vehicles.clear();
       clearMarkers();
       setStatus("");
     }
   });
   document.addEventListener("visibilitychange", () => {
     if (!toggle.checked) return;
-    if (document.hidden) stop();
-    else start();
+    if (document.hidden) close();
+    else open();
   });
   toggle.checked = localStorage.getItem(LIVE_PREF_KEY) === "1";
-  if (toggle.checked) start();
+  if (toggle.checked) open();
 }
 
 function initRouteMap() {
