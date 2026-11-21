@@ -9,13 +9,15 @@
   <div class="field">
     <span class="dot dot-hollow" aria-hidden="true"></span>
     <label class="sr-only" for="from">From</label>
-    <input id="from" name="from" list="stops" placeholder="From" value="{{.From}}" required>
+    <input id="from" name="from" class="stop-input" placeholder="From" value="{{.From}}" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="from-list">
+    <ul class="suggest" id="from-list" role="listbox" hidden></ul>
     <button type="button" class="swap" id="swap" aria-label="Swap From and To">{{template "icon-swap"}}</button>
   </div>
   <div class="field">
     <span class="dot dot-filled" aria-hidden="true"></span>
     <label class="sr-only" for="to">To</label>
-    <input id="to" name="to" list="stops" placeholder="To" value="{{.To}}" required>
+    <input id="to" name="to" class="stop-input" placeholder="To" value="{{.To}}" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="to-list">
+    <ul class="suggest" id="to-list" role="listbox" hidden></ul>
   </div>
   <div class="field static">
     <span class="accent">{{template "icon-clock"}}</span>
@@ -23,8 +25,6 @@
     <span class="muted now">{{.NowText}}</span>
   </div>
   <button type="submit" class="btn-primary">{{template "icon-search"}}<span>Search connections</span></button>
-  <datalist id="stops">
-    {{range .Stops}}<option value="{{.}}">{{end}}
-  </datalist>
+  <script id="stops-data" type="application/json">{{.Stops}}</script>
 </form>
 {{end}}

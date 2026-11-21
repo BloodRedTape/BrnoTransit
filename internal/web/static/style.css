@@ -65,6 +65,26 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
   min-height: 64px;
   border-bottom: 1px solid var(--line-sep);
 }
+.search .field:has(.suggest) { position: relative; }
+
+.suggest {
+  position: absolute; left: -8px; right: -8px; top: calc(100% - 4px);
+  z-index: 10;
+  margin: 0; padding: 6px 0;
+  list-style: none;
+  max-height: 320px; overflow-y: auto;
+  background: #262626;
+  border: 1px solid var(--line-sep);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .5);
+}
+.suggest li {
+  padding: 11px 16px;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+.suggest li:hover, .suggest li[aria-selected="true"] { background: #33404f; }
+
 .search .field.static { margin-bottom: 18px; font-size: 1.1rem; }
 .search .now { margin-left: auto; }
 
