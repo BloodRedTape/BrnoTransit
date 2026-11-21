@@ -60,6 +60,8 @@ type search struct {
 	bestLab   [][]label
 	transit   [][]int32
 	transLab  [][]label
+	bestWalk  [][]int32
+	transWalk [][]int32
 	tauStar   []int32
 	isTarget  []bool
 	targetArr int32
@@ -75,6 +77,8 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		bestLab:   make([][]label, rounds),
 		transit:   make([][]int32, rounds),
 		transLab:  make([][]label, rounds),
+		bestWalk:  make([][]int32, rounds),
+		transWalk: make([][]int32, rounds),
 		tauStar:   fill(n),
 		isTarget:  make([]bool, n),
 		targetArr: Infinity,
@@ -85,6 +89,8 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		s.bestLab[k] = make([]label, n)
 		s.transit[k] = fill(n)
 		s.transLab[k] = make([]label, n)
+		s.bestWalk[k] = make([]int32, n)
+		s.transWalk[k] = make([]int32, n)
 	}
 	for _, t := range targets {
 		s.isTarget[t] = true
@@ -122,6 +128,7 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 	for k := 1; k < rounds && len(marked) > 0; k++ {
 		copy(s.best[k], s.best[k-1])
 		copy(s.bestLab[k], s.bestLab[k-1])
+		copy(s.bestWalk[k], s.bestWalk[k-1])
 
 		clear(queue)
 		for _, st := range marked {
@@ -154,15 +161,15 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 func (s *search) scanRoute(k int, ri, start int32, mark func(int32)) {
 	r := &s.tt.Routes[ri]
 	trip := -1
-	var boardPos int32
+	var boardPos, boardWalk int32
 	for pos := int(start); pos < len(r.Stops); pos++ {
 		stop := r.Stops[pos]
 		if trip >= 0 && r.Drop[pos] {
 			a := r.ArrAt(trip, pos)
 			if a < s.tauStar[stop] && a < s.targetArr {
 				lab := label{kind: kindTransit, round: int32(k), route: ri, trip: int32(trip), boardPos: boardPos, alightPos: int32(pos)}
-				s.transit[k][stop], s.transLab[k][stop] = a, lab
-				s.best[k][stop], s.bestLab[k][stop] = a, lab
+				s.transit[k][stop], s.transLab[k][stop], s.transWalk[k][stop] = a, lab, boardWalk
+				s.best[k][stop], s.bestLab[k][stop], s.bestWalk[k][stop] = a, lab, boardWalk
 				s.tauStar[stop] = a
 				if s.isTarget[stop] {
 					s.targetArr = a
@@ -180,8 +187,13 @@ func (s *search) scanRoute(k int, ri, start int32, mark func(int32)) {
 		if trip >= 0 && prev > r.DepAt(trip, pos) {
 			continue
 		}
-		if t := earliestTrip(r, pos, prev); t >= 0 && (trip < 0 || t < trip) {
-			trip, boardPos = t, int32(pos)
+		t := earliestTrip(r, pos, prev)
+		if t < 0 {
+			continue
+		}
+		walk := s.bestWalk[k-1][stop]
+		if trip < 0 || t < trip || (t == trip && walk < boardWalk) {
+			trip, boardPos, boardWalk = t, int32(pos), walk
 		}
 	}
 }
@@ -195,6 +207,7 @@ func (s *search) relaxFootpaths(k int, from int32, mark func(int32)) {
 		}
 		s.best[k][fp.To] = a
 		s.bestLab[k][fp.To] = label{kind: kindWalk, round: int32(k), from: from, dur: fp.Dur, meters: fp.Meters}
+		s.bestWalk[k][fp.To] = s.transWalk[k][from] + fp.Dur
 		s.tauStar[fp.To] = a
 		if s.isTarget[fp.To] {
 			s.targetArr = a

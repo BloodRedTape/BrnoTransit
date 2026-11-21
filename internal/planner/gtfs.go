@@ -216,6 +216,9 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		next := int32(raptor.Infinity)
 		for _, j := range js {
 			j = alignInitialWalk(j)
+			if dep := j.Legs[0].Dep; dep < next {
+				next = dep
+			}
 			if j.Legs[0].Dep > limit {
 				continue
 			}
@@ -224,12 +227,12 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 				seen[key] = true
 				found = append(found, j)
 			}
-			if dep := j.Legs[0].Dep; dep < next {
-				next = dep
-			}
 		}
 		if next < t {
 			next = t
+		}
+		if next >= limit {
+			break
 		}
 		t = next + 60
 	}
@@ -266,6 +269,29 @@ func signature(j raptor.Journey) string {
 	return sb.String()
 }
 
+func walkSeconds(j raptor.Journey) int32 {
+	var w int32
+	for _, l := range j.Legs {
+		if l.Walk {
+			w += l.Arr - l.Dep
+		}
+	}
+	return w
+}
+
+func betterOnSameRides(a, b raptor.Journey) bool {
+	if a.Arr != b.Arr {
+		return a.Arr < b.Arr
+	}
+	if wa, wb := walkSeconds(a), walkSeconds(b); wa != wb {
+		return wa < wb
+	}
+	if a.Legs[0].Dep != b.Legs[0].Dep {
+		return a.Legs[0].Dep > b.Legs[0].Dep
+	}
+	return len(a.Legs) < len(b.Legs)
+}
+
 func mergeSameRides(js []raptor.Journey) []raptor.Journey {
 	best := map[string]int{}
 	var out []raptor.Journey
@@ -276,7 +302,6 @@ func mergeSameRides(js []raptor.Journey) []raptor.Journey {
 				fmt.Fprintf(&sb, "%d.%d;", l.Route, l.Trip)
 			}
 		}
-		fmt.Fprintf(&sb, "@%d", j.Arr)
 		key := sb.String()
 		i, ok := best[key]
 		if !ok {
@@ -284,7 +309,7 @@ func mergeSameRides(js []raptor.Journey) []raptor.Journey {
 			out = append(out, j)
 			continue
 		}
-		if prev := out[i]; j.Legs[0].Dep > prev.Legs[0].Dep || (j.Legs[0].Dep == prev.Legs[0].Dep && len(j.Legs) < len(prev.Legs)) {
+		if betterOnSameRides(j, out[i]) {
 			out[i] = j
 		}
 	}
