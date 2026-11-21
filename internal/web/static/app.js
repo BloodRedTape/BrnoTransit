@@ -100,7 +100,16 @@ function attachAutocomplete(input, stops) {
   });
 }
 
-const MAP_STYLE = "https://tiles.versatiles.org/assets/styles/colorful-dark/style.json";
+const MAP_STYLES = {
+  dark: "https://tiles.versatiles.org/assets/styles/colorful-dark/style.json",
+  light: "https://tiles.versatiles.org/assets/styles/colorful/style.json",
+};
+const MAP_THEME = {
+  dark: { walk: "#d6d6d6", casing: "#0b0b0b", casingOpacity: 0.75, stopFill: "#1e1e1e" },
+  light: { walk: "#5f5f66", casing: "#ffffff", casingOpacity: 0.95, stopFill: "#ffffff" },
+};
+const lightQuery = window.matchMedia("(prefers-color-scheme: light)");
+const currentScheme = () => (lightQuery.matches ? "light" : "dark");
 
 function luminance(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
@@ -109,9 +118,11 @@ function luminance(hex) {
   return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
 }
 
-function legColor(leg) {
-  if (leg.w) return "#d6d6d6";
-  return luminance(leg.c) < 0.2 && leg.tc ? leg.tc : leg.c || "#4a8fdb";
+function legColor(leg, scheme) {
+  if (leg.w) return MAP_THEME[scheme].walk;
+  const lum = luminance(leg.c);
+  const unreadable = scheme === "dark" ? lum < 0.2 : lum > 0.85;
+  return unreadable && leg.tc ? leg.tc : leg.c || "#4a8fdb";
 }
 
 const lonLat = ([lat, lon]) => [lon, lat];
@@ -128,11 +139,11 @@ function endpointMarker(kind, name) {
   return el;
 }
 
-function routeGeoJSON(legs) {
+function routeGeoJSON(legs, scheme) {
   const lines = [];
   const stops = [];
   legs.forEach((leg, i) => {
-    const color = legColor(leg);
+    const color = legColor(leg, scheme);
     const coords = leg.p.map(lonLat);
     lines.push({ type: "Feature", properties: { color, walk: !!leg.w }, geometry: { type: "LineString", coordinates: coords } });
     if (leg.w) return;
@@ -147,6 +158,36 @@ function routeGeoJSON(legs) {
   return { lines: { type: "FeatureCollection", features: lines }, stops: { type: "FeatureCollection", features: stops } };
 }
 
+function addRouteLayers(map, legs, scheme) {
+  const theme = MAP_THEME[scheme];
+  const { lines, stops } = routeGeoJSON(legs, scheme);
+  map.addSource("route", { type: "geojson", data: lines });
+  map.addSource("route-stops", { type: "geojson", data: stops });
+  map.addLayer({
+    id: "route-casing", type: "line", source: "route", filter: ["!", ["get", "walk"]],
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": theme.casing, "line-width": 10, "line-opacity": theme.casingOpacity },
+  });
+  map.addLayer({
+    id: "route-ride", type: "line", source: "route", filter: ["!", ["get", "walk"]],
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": ["get", "color"], "line-width": 6 },
+  });
+  map.addLayer({
+    id: "route-walk", type: "line", source: "route", filter: ["get", "walk"],
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": ["get", "color"], "line-width": 4, "line-dasharray": [0, 2] },
+  });
+  map.addLayer({
+    id: "route-stops", type: "circle", source: "route-stops", filter: ["==", ["get", "kind"], "stop"],
+    paint: { "circle-radius": 3, "circle-color": theme.stopFill, "circle-stroke-color": ["get", "color"], "circle-stroke-width": 2 },
+  });
+  map.addLayer({
+    id: "route-transfers", type: "circle", source: "route-stops", filter: ["==", ["get", "kind"], "transfer"],
+    paint: { "circle-radius": 6, "circle-color": "#ffffff", "circle-stroke-color": ["get", "color"], "circle-stroke-width": 3 },
+  });
+}
+
 function initRouteMap() {
   const el = document.getElementById("route-map");
   if (!el) return;
@@ -159,9 +200,10 @@ function initRouteMap() {
   const bounds = new maplibregl.LngLatBounds();
   legs.forEach((l) => l.p.forEach((p) => bounds.extend(lonLat(p))));
 
+  let scheme = currentScheme();
   const map = new maplibregl.Map({
     container: el,
-    style: MAP_STYLE,
+    style: MAP_STYLES[scheme],
     bounds,
     fitBoundsOptions: { padding: { top: 60, bottom: 50, left: 50, right: 50 }, maxZoom: 16 },
     attributionControl: { compact: true },
@@ -172,46 +214,23 @@ function initRouteMap() {
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.on("error", (e) => console.warn("map:", e.error && e.error.message));
 
-  const { lines, stops } = routeGeoJSON(legs);
-  map.once("style.load", () => {
-    map.addSource("route", { type: "geojson", data: lines });
-    map.addSource("route-stops", { type: "geojson", data: stops });
-    map.addLayer({
-      id: "route-casing", type: "line", source: "route", filter: ["!", ["get", "walk"]],
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "#0b0b0b", "line-width": 10, "line-opacity": 0.75 },
-    });
-    map.addLayer({
-      id: "route-ride", type: "line", source: "route", filter: ["!", ["get", "walk"]],
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": 6 },
-    });
-    map.addLayer({
-      id: "route-walk", type: "line", source: "route", filter: ["get", "walk"],
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": 4, "line-dasharray": [0, 2] },
-    });
-    map.addLayer({
-      id: "route-stops", type: "circle", source: "route-stops", filter: ["==", ["get", "kind"], "stop"],
-      paint: { "circle-radius": 3, "circle-color": "#1e1e1e", "circle-stroke-color": ["get", "color"], "circle-stroke-width": 2 },
-    });
-    map.addLayer({
-      id: "route-transfers", type: "circle", source: "route-stops", filter: ["==", ["get", "kind"], "transfer"],
-      paint: { "circle-radius": 6, "circle-color": "#ffffff", "circle-stroke-color": ["get", "color"], "circle-stroke-width": 3 },
-    });
+  map.on("style.load", () => addRouteLayers(map, legs, scheme));
+  lightQuery.addEventListener("change", () => {
+    scheme = currentScheme();
+    map.setStyle(MAP_STYLES[scheme]);
+  });
 
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: "stop-popup" });
-    ["route-stops", "route-transfers"].forEach((layer) => {
-      map.on("mouseenter", layer, (e) => {
-        const f = e.features[0];
-        if (!f.properties.name) return;
-        map.getCanvas().style.cursor = "pointer";
-        popup.setLngLat(f.geometry.coordinates).setText(f.properties.name).addTo(map);
-      });
-      map.on("mouseleave", layer, () => {
-        map.getCanvas().style.cursor = "";
-        popup.remove();
-      });
+  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10, className: "stop-popup" });
+  ["route-stops", "route-transfers"].forEach((layer) => {
+    map.on("mouseenter", layer, (e) => {
+      const f = e.features[0];
+      if (!f.properties.name) return;
+      map.getCanvas().style.cursor = "pointer";
+      popup.setLngLat(f.geometry.coordinates).setText(f.properties.name).addTo(map);
+    });
+    map.on("mouseleave", layer, () => {
+      map.getCanvas().style.cursor = "";
+      popup.remove();
     });
   });
 
