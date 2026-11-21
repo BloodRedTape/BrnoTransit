@@ -59,6 +59,36 @@ On first start two files are downloaded:
 Service workers need HTTPS except on `localhost`. To test the PWA on a phone,
 put the server behind HTTPS (a reverse proxy or a tunnel).
 
+### Docker
+
+The image is a static binary on `gcr.io/distroless/static` (non-root). It
+listens on plain HTTP `:8080` and keeps both caches in the `/data` volume.
+
+With Compose (publishes the app on port **23461**):
+
+```sh
+docker compose up -d --build
+```
+
+Or plain Docker:
+
+```sh
+docker build -t brno-transit .
+docker run -d --name brno-transit -p 23461:8080 -v brno-transit-data:/data brno-transit
+```
+
+To pass extra flags, override the entrypoint arguments (e.g. append
+`-live-url ""` to disable live positions). The server shuts down cleanly on
+`SIGTERM`, so `docker stop` closes SSE connections immediately.
+
+Behind Caddy, which provides HTTPS and needs no special settings for SSE:
+
+```
+transit.example.com {
+	reverse_proxy 127.0.0.1:23461
+}
+```
+
 ## Data sources
 
 | What                    | Source                                                                                          |

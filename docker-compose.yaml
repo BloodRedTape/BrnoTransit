@@ -1,0 +1,12 @@
+services:
+  brno-transit:
+    build: .
+    image: brno-transit
+    restart: unless-stopped
+    ports:
+      - "23461:8080"
+    volumes:
+      - brno-transit-data:/data
+
+volumes:
+  brno-transit-data:
