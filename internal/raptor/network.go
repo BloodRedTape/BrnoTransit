@@ -34,13 +34,30 @@ type Network struct {
 	Footpaths [][]Footpath
 	UsedStops []bool
 	patterns  []pattern
+	tripConns map[int32][]int32
 }
 
 func NewNetwork(f *gtfs.Feed) *Network {
-	n := &Network{Feed: f, UsedStops: make([]bool, len(f.Stops))}
+	n := &Network{Feed: f, UsedStops: make([]bool, len(f.Stops)), tripConns: map[int32][]int32{}}
 	n.buildPatterns()
 	n.buildFootpaths()
+	for i, t := range f.TripTransfers {
+		n.tripConns[t.FromTrip] = append(n.tripConns[t.FromTrip], int32(i))
+	}
 	return n
+}
+
+func (n *Network) walkBetween(from, to int32) (dur, meters int32) {
+	for _, fp := range n.Footpaths[from] {
+		if fp.To == to {
+			return fp.Dur, fp.Meters
+		}
+	}
+	if from == to {
+		return 0, 0
+	}
+	d := Distance(n.Feed.Stops[from], n.Feed.Stops[to]) * walkDetour
+	return max(int32(math.Ceil(d/walkSpeed)), minWalkSeconds), int32(math.Round(d))
 }
 
 func (n *Network) buildPatterns() {

@@ -1,0 +1,41 @@
+package routing
+
+import (
+	"testing"
+
+	"brnotransport/internal/model"
+)
+
+func TestHaskovaToDetskaNemocnice_NoWalkToSameTram(t *testing.T) {
+	r := plan(t, "Haškova", "Dětská nemocnice", "2026-11-21 22:29")
+
+	r.expectNone("57 to Slavíčkova + walk to Čertova rokle for the tram 9 you could board at Halasovo náměstí",
+		walks("Slavíčkova", "Čertova rokle"))
+	r.expectSome("rides 57 to Halasovo náměstí and changes to tram 9 there without walking to another stop",
+		and(noWalksBetweenStops, rides(
+			ride{"57", "Haškova", "Halasovo náměstí"},
+			ride{"9", "Halasovo náměstí", "Dětská nemocnice"},
+		)))
+}
+
+func TestHaskovaToDetskaNemocnice_Bus46ThenTram5NotLost(t *testing.T) {
+	r := plan(t, "Haškova", "Dětská nemocnice", "2026-11-22 10:45")
+
+	r.expectSome("leaves Haškova on 46 at 10:58 and arrives on tram 5 at 11:09",
+		func(j model.Journey) bool {
+			if !boards("46", "Haškova", "10:58")(j) || hm(j.Arrival()) != "11:09" {
+				return false
+			}
+			last := j.Legs[len(j.Legs)-1]
+			return !last.IsWalk() && last.Line.Name == "5" && last.Guaranteed
+		})
+}
+
+func TestHaskovaToHlavniNadrazi_NoWalkToBoardSameNightBus(t *testing.T) {
+	r := plan(t, "Haškova", "Hlavní nádraží", "2026-11-21 23:12")
+
+	r.expectNone("walks from Haškova to Loosova to catch N92 that also stops at Haškova",
+		walks("Haškova", "Loosova"))
+	r.expectSome("boards the 00:40 N92 right at Haškova instead of walking to Loosova for it",
+		and(noWalksBetweenStops, boards("N92", "Haškova", "00:40"), rides(ride{"N92", "Haškova", "Hlavní nádraží"})))
+}

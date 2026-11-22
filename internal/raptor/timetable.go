@@ -8,7 +8,15 @@ import (
 const (
 	day            = 24 * 3600
 	nextDayHorizon = 8 * 3600
+	maxConnGap     = 3600
 )
+
+type Connection struct {
+	ToRoute int32
+	ToTrip  int32
+	ToPos   int32
+	MaxWait int32
+}
 
 type Route struct {
 	GTFSRoute int32
@@ -18,6 +26,8 @@ type Route struct {
 	Trips     []int32
 	Arr       []int32
 	Dep       []int32
+	HasConn   []bool
+	Conns     map[int32][]Connection
 }
 
 func (r *Route) at(trip, pos int) int { return trip*len(r.Stops) + pos }
@@ -83,7 +93,55 @@ func (n *Network) Timetable(base time.Time) *Timetable {
 			tt.StopRoutes[s] = append(tt.StopRoutes[s], StopRoute{Route: int32(ri), Pos: int32(pos)})
 		}
 	}
+	tt.addConnections()
 	return tt
+}
+
+func (tt *Timetable) addConnections() {
+	n := tt.Net
+	if len(n.tripConns) == 0 {
+		return
+	}
+	type instance struct{ route, trip int32 }
+	instances := map[int32][]instance{}
+	for ri, r := range tt.Routes {
+		for i, g := range r.Trips {
+			instances[g] = append(instances[g], instance{int32(ri), int32(i)})
+		}
+	}
+	for ri := range tt.Routes {
+		r := &tt.Routes[ri]
+		for i, g := range r.Trips {
+			for _, ci := range n.tripConns[g] {
+				c := &n.Feed.TripTransfers[ci]
+				for pos, s := range r.Stops {
+					if s != c.FromStop || !r.Drop[pos] {
+						continue
+					}
+					arr := r.ArrAt(i, pos)
+					for _, in := range instances[c.ToTrip] {
+						rb := &tt.Routes[in.route]
+						for pb, sb := range rb.Stops {
+							if sb != c.ToStop || !rb.Pickup[pb] {
+								continue
+							}
+							dep := rb.DepAt(int(in.trip), pb)
+							if dep < arr+c.MinTime || dep > arr+maxConnGap {
+								continue
+							}
+							if r.Conns == nil {
+								r.Conns = map[int32][]Connection{}
+								r.HasConn = make([]bool, len(r.Stops))
+							}
+							key := int32(r.at(i, pos))
+							r.Conns[key] = append(r.Conns[key], Connection{ToRoute: in.route, ToTrip: in.trip, ToPos: int32(pb), MaxWait: c.MaxWait})
+							r.HasConn[pos] = true
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func (tt *Timetable) addPattern(p pattern, cands []candidate) {

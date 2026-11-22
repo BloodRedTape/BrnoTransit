@@ -17,6 +17,7 @@
   {{if .Walk}}
   <div class="walk-row muted">{{template "icon-walk"}}<span>Walk {{.WalkMinutes}} min</span><span class="walk-detail">{{if eq .From .To}}platform {{.FromPlatform}} &rarr; {{.ToPlatform}}{{else}}to {{.To}} {{.ToPlatform}}{{end}}</span></div>
   {{else}}
+  {{if .Guaranteed}}<div class="walk-row conn-row">{{template "icon-guarantee"}}<span>{{if .WaitMinutes}}Guaranteed connection{{else}}Timed connection{{end}}</span>{{if .WaitMinutes}}<span class="walk-detail">waits up to {{.WaitMinutes}} min</span>{{end}}</div>{{end}}
   <section class="leg" style="--line: {{.Color}}; --line-text: {{.TextColor}}">
     <div class="leg-head">
       {{template "icon-mode" .Mode}}

@@ -72,13 +72,21 @@ type Transfer struct {
 	MinTime  int32
 }
 
+type TripTransfer struct {
+	FromTrip, ToTrip int32
+	FromStop, ToStop int32
+	MinTime          int32
+	MaxWait          int32
+}
+
 type Feed struct {
-	Stops     []Stop
-	StopIndex map[string]int32
-	Routes    []Route
-	Trips     []Trip
-	Services  []Service
-	Transfers []Transfer
+	Stops         []Stop
+	StopIndex     map[string]int32
+	Routes        []Route
+	Trips         []Trip
+	Services      []Service
+	Transfers     []Transfer
+	TripTransfers []TripTransfer
 }
 
 const MaxUncompressed = 1 << 30
@@ -268,18 +276,29 @@ func (p *parser) stopTime(get func(string) string) error {
 }
 
 func (p *parser) transfer(get func(string) string) error {
-	if get("from_trip_id") != "" || get("to_trip_id") != "" || get("from_route_id") != "" || get("to_route_id") != "" {
-		return nil
-	}
-	if get("transfer_type") == "3" {
+	if get("transfer_type") == "3" || get("from_route_id") != "" || get("to_route_id") != "" {
 		return nil
 	}
 	from, ok1 := p.feed.StopIndex[get("from_stop_id")]
 	to, ok2 := p.feed.StopIndex[get("to_stop_id")]
-	if !ok1 || !ok2 || from == to {
+	if !ok1 || !ok2 {
 		return nil
 	}
 	mt, _ := strconv.Atoi(get("min_transfer_time"))
+	fromTrip, toTrip := get("from_trip_id"), get("to_trip_id")
+	if fromTrip != "" || toTrip != "" {
+		ft, ok1 := p.tripIdx[fromTrip]
+		tt, ok2 := p.tripIdx[toTrip]
+		if !ok1 || !ok2 || ft == tt {
+			return nil
+		}
+		mw, _ := strconv.Atoi(get("max_waiting_time"))
+		p.feed.TripTransfers = append(p.feed.TripTransfers, TripTransfer{FromTrip: ft, ToTrip: tt, FromStop: from, ToStop: to, MinTime: int32(mt), MaxWait: int32(mw)})
+		return nil
+	}
+	if from == to {
+		return nil
+	}
 	p.feed.Transfers = append(p.feed.Transfers, Transfer{From: from, To: to, MinTime: int32(mt)})
 	return nil
 }

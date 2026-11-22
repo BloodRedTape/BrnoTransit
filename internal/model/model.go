@@ -42,6 +42,8 @@ type Leg struct {
 	DelayMinutes      int
 	DistanceMeters    int
 	Path              []Point
+	Guaranteed        bool
+	MaxWait           time.Duration
 }
 
 func (l Leg) IsWalk() bool { return l.Mode == Walk }

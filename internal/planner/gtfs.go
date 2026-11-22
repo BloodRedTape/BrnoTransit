@@ -442,6 +442,8 @@ func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey) model.Journey 
 			leg.Headsign = feed.Trips[r.Trips[l.Trip]].Headsign
 			leg.TripID = feed.Trips[r.Trips[l.Trip]].ID
 			leg.IntermediateStops = int(l.AlightPos - l.BoardPos - 1)
+			leg.Guaranteed = l.Guaranteed
+			leg.MaxWait = time.Duration(l.MaxWait) * time.Second
 			meters := 0.0
 			leg.Path = append(leg.Path, pt(from))
 			for p := l.BoardPos; p < l.AlightPos; p++ {

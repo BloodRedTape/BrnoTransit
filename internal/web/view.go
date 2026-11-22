@@ -65,6 +65,8 @@ type legView struct {
 	Intermediate int
 	DelayMinutes int
 	WalkMinutes  int
+	Guaranteed   bool
+	WaitMinutes  int
 }
 
 func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location, signer mapSigner) []journeyView {
@@ -98,6 +100,8 @@ func buildJourneyViews(js []model.Journey, now time.Time, loc *time.Location, si
 				Intermediate: l.IntermediateStops,
 				DelayMinutes: l.DelayMinutes,
 				WalkMinutes:  int(l.Duration().Round(time.Minute).Minutes()),
+				Guaranteed:   l.Guaranteed,
+				WaitMinutes:  int(math.Ceil(l.MaxWait.Minutes())),
 			})
 		}
 		out = append(out, jv)

@@ -139,6 +139,13 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
   - Up to 6 rides per journey.
   - A **transfer slack of 1 minute** is required on top of walking time. It
     applies only after a ride; the first boarding has no slack.
+  - **Guaranteed connections.** `transfers.txt` also has ~100k trip-to-trip
+    rows (`from_trip_id` → `to_trip_id`, with `min_transfer_time` and
+    `max_waiting_time`, i.e. how long the next vehicle waits for a late one).
+    When the trip you ride has such a row, the connecting trip can be boarded
+    if it departs at least `min_transfer_time` after you arrive, with no slack
+    and no walking minimum. Results show these as "Guaranteed connection ·
+    waits up to N min" (or "Timed connection" when the wait is 0).
 - **Planner** (`internal/planner/gtfs.go`)
   - Repeats the search, each time departing one minute after the previous
     best departure. It stops after ~6 distinct journeys or a 3-hour window.
@@ -151,6 +158,19 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
   (`web.SortByEarliestArrival`).
 
 A typical query takes 5–40 ms.
+
+## Tests
+
+`tests/routing` runs the planner on a pinned GTFS snapshot
+(`tests/routing/testdata/gtfs-2026-11-20.zip`, valid 2026-11-20 … 2026-12-11)
+and checks real-world scenarios. Every scenario also checks general invariants
+(legs connect, no time travel, transfer slack, no duplicate trip sets).
+
+```sh
+go test ./tests/routing -v
+```
+
+Set `BRNO_GTFS` to run against a different feed.
 
 ## Live vehicles
 

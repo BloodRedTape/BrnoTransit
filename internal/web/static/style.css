@@ -250,6 +250,7 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
 }
 .walk-row .mode-icon { width: 20px; height: 20px; }
 .walk-detail { margin-left: auto; font-size: .85rem; }
+.conn-row, .conn-row .mode-icon { color: var(--green); }
 
 .empty { padding: 20px; }
 
