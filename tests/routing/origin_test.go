@@ -26,6 +26,15 @@ func TestOrigin_StartsWithWalkFromLocation(t *testing.T) {
 		walks(planner.OriginName, "Haškova"),
 		boards("46", "Haškova", "10:58"),
 	))
+	r.expectSome("boards the 10:59 57 at Haškova", boards("57", "Haškova", "10:59"))
+	r.expectSome("boards the same 57 one stop earlier at Loosova, as a separate option", boards("57", "Loosova", "11:00"))
+	r.expectNone("rides 57 from Loosova to Haškova just to change to 46, which is reachable on foot",
+		rides(ride{"57", "Loosova", "Haškova"}, ride{"46", "Haškova", "Štefánikova čtvrť"}, ride{"5", "Štefánikova čtvrť", "Dětská nemocnice"}))
+}
+
+func TestStation_NoInitialWalkToAnotherStation(t *testing.T) {
+	r := plan(t, "Jugoslávská", "Hlavní nádraží", "2026-11-22 14:55")
+	r.expectNone("walks from Jugoslávská to Trávníčkova first", walks("Jugoslávská", "Trávníčkova"))
 }
 
 func TestOrigin_NoStopWithinRadius(t *testing.T) {

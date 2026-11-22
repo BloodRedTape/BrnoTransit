@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,8 +45,9 @@ type station struct {
 type dataset struct {
 	net      *raptor.Network
 	loc      *time.Location
-	stations []station
-	stops    []model.Stop
+	stations  []station
+	stationOf []int32
+	stops     []model.Stop
 	byName   map[string]int
 	byFold   map[string]int
 	byNumber map[int]string
@@ -197,9 +199,9 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	}
 	targets := d.stations[ti].children
 	base := raptor.Options{MaxRides: maxRides, TransferSlack: int32(transferSlack / time.Second)}
-	var sources []int32
+	var starts []start
 	if opts.Origin != nil {
-		base.Origin = d.net.FootpathsFrom(opts.Origin.Lat, opts.Origin.Lon)
+		starts = d.originStarts(*opts.Origin, base)
 	} else {
 		fi, ok := d.lookup(from)
 		if !ok {
@@ -208,7 +210,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		if fi == ti {
 			return nil, errors.New("origin equals destination")
 		}
-		sources = d.stations[fi].children
+		starts = []start{{sources: d.stations[fi].children, opts: base}}
 	}
 
 	depart = depart.In(d.loc).Truncate(time.Minute)
@@ -216,6 +218,123 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	t0 := int32(depart.Sub(tt.Base) / time.Second)
 	limit := t0 + int32(searchWindow/time.Second)
 
+	for i := range starts {
+		s := &starts[i]
+		var err error
+		if s.found, err = mainSearch(ctx, tt, s.sources, targets, t0, limit, s.opts); err != nil {
+			return nil, err
+		}
+	}
+	if len(starts) > 1 {
+		cutoff := mergedCutoff(starts)
+		for i := range starts {
+			starts[i].found = arrivingBy(starts[i].found, cutoff)
+		}
+	}
+
+	var all []raptor.Journey
+	for _, s := range starts {
+		found := s.found
+		if opts.Alternatives {
+			found = addAlternatives(ctx, tt, s.sources, targets, found, limit, s.opts)
+		}
+		all = append(all, found...)
+	}
+	if len(starts) > 1 {
+		all = dropDetours(all)
+	}
+	out := make([]model.Journey, 0, len(all))
+	for _, j := range all {
+		out = append(out, d.toModel(tt, j, opts.Origin))
+	}
+	return out, nil
+}
+
+func dropDetours(js []raptor.Journey) []raptor.Journey {
+	sets := make([]map[int64]bool, len(js))
+	for i, j := range js {
+		sets[i] = map[int64]bool{}
+		for _, l := range j.Legs {
+			if !l.Walk {
+				sets[i][raptor.TripKey(l.Route, l.Trip)] = true
+			}
+		}
+	}
+	var out []raptor.Journey
+	for i, a := range js {
+		dominated := false
+		for k, b := range js {
+			if len(sets[k]) < len(sets[i]) && b.Arr <= a.Arr && b.Legs[0].Dep >= a.Legs[0].Dep && subset(sets[k], sets[i]) {
+				dominated = true
+				break
+			}
+		}
+		if !dominated {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func subset(a, b map[int64]bool) bool {
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+type start struct {
+	sources []int32
+	opts    raptor.Options
+	found   []raptor.Journey
+}
+
+func (d *dataset) originStarts(p model.Point, base raptor.Options) []start {
+	byStation := map[int32]int{}
+	var out []start
+	for _, fp := range d.net.FootpathsFrom(p.Lat, p.Lon) {
+		si := d.stationOf[fp.To]
+		if si < 0 {
+			continue
+		}
+		i, ok := byStation[si]
+		if !ok {
+			i = len(out)
+			byStation[si] = i
+			out = append(out, start{opts: base})
+		}
+		out[i].opts.Origin = append(out[i].opts.Origin, fp)
+	}
+	return out
+}
+
+func mergedCutoff(starts []start) int32 {
+	var arr []int32
+	for _, s := range starts {
+		for _, j := range s.found {
+			arr = append(arr, j.Arr)
+		}
+	}
+	if len(arr) == 0 {
+		return raptor.Infinity
+	}
+	slices.Sort(arr)
+	return arr[min(wantedJourneys, len(arr))-1]
+}
+
+func arrivingBy(js []raptor.Journey, cutoff int32) []raptor.Journey {
+	var out []raptor.Journey
+	for _, j := range js {
+		if j.Arr <= cutoff {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, t0, limit int32, base raptor.Options) ([]raptor.Journey, error) {
 	bySet := map[string]int{}
 	var found []raptor.Journey
 	t := t0
@@ -264,21 +383,16 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		}
 		t = next + 60
 	}
-
-	if opts.Alternatives {
-		found = addAlternatives(ctx, tt, sources, targets, found, bySet, limit, base)
-	}
-
-	out := make([]model.Journey, 0, len(found))
-	for _, j := range found {
-		out = append(out, d.toModel(tt, j, opts.Origin))
-	}
-	return out, nil
+	return found, nil
 }
 
-func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, bySet map[string]int, limit int32, base raptor.Options) []raptor.Journey {
+func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, limit int32, base raptor.Options) []raptor.Journey {
 	if len(found) == 0 {
 		return found
+	}
+	bySet := make(map[string]int, len(found))
+	for i, j := range found {
+		bySet[tripSetKey(j)] = i
 	}
 	cutoff := latestArrival(found)
 	type node struct {
@@ -459,6 +573,15 @@ func newDataset(feed *gtfs.Feed, loc *time.Location) *dataset {
 		}
 	}
 	sort.Slice(d.stations, func(a, b int) bool { return d.stations[a].stop.Name < d.stations[b].stop.Name })
+	d.stationOf = make([]int32, len(feed.Stops))
+	for i := range d.stationOf {
+		d.stationOf[i] = -1
+	}
+	for si, st := range d.stations {
+		for _, c := range st.children {
+			d.stationOf[c] = int32(si)
+		}
+	}
 
 	foldCount := map[string]int{}
 	for i, st := range d.stations {

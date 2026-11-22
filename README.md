@@ -12,6 +12,10 @@ with time-limited tickets. This app sorts by **earliest arrival** instead.
 - **Search screen:** from/to stop inputs with an accent-insensitive
   autocomplete. `Kra`, `Krá` and `kralovo` all find *Královo Pole*; the
   server also accepts names without diacritics.
+  - **My location:** the 📍 button in the From field uses the browser's
+    geolocation as the start. Journeys then begin with a walk from your
+    position to a nearby station (see [Starting from your location](#starting-from-your-location)).
+    Coordinates are rounded to 4 decimals (~11 m) before they go into the URL.
 - **Results screen:** every distinct combination of trips (up to ~20), sorted by arrival time; on equal
   arrival, the one departing earlier comes first (the sort is fixed). Each card
   shows line badges in official colours, platforms, intermediate stop count,
@@ -131,10 +135,13 @@ Notes:
    2. then less walking;
    3. then later departure.
 
-   This drops pointless walks: walking to an earlier stop of the same bus
-   (Haškova → Loosova for the N92 that also stops at Haškova), or getting off
-   to walk to a stop that the same tram passes anyway (Slavíčkova → Čertova
-   rokle instead of changing at Halasovo náměstí).
+   This drops pointless walks, such as getting off to walk to a stop that
+   the same tram passes anyway (Slavíčkova → Čertova rokle instead of
+   changing at Halasovo náměstí).
+
+   Rule 2 applies per start station. When starting from your location, the
+   same trips boarded at different stations are different connections (see
+   rule 7).
 3. **Different trips → show each.** Every distinct set of trips gets its own
    best connection, and all of them are shown, even with the same arrival
    time. For example, 57 → S3 and 57 → tram 9, both leaving at 11:09 and
@@ -150,11 +157,26 @@ Notes:
    the next tram 9 is not offered, because a later first bus does the same.
 5. **Sorting.** The final list is sorted by arrival at the destination; on
    equal arrival, the earlier departure comes first.
+6. **No walk at the start from a station.** When you start from a station,
+   every connection boards right there, on any of its platforms. Walking to
+   another station first (Jugoslávská → Trávníčkova, Haškova → Loosova) is not
+   offered. Walks after a ride (changing platforms, walking to a transfer stop
+   or to the destination) are unaffected.
+7. **From your location, every nearby station is a start.** Each station
+   with a platform within 400 m is searched as its own start, and the results
+   are merged. If the same bus 57 can be caught at Haškova (2 min walk) or at
+   Loosova (6 min walk), both are shown: you pick where to go. A connection is
+   dropped only if another one rides a strict subset of its trips, arrives no
+   later and leaves no earlier. Example: walk to Loosova, ride 57 one stop to
+   Haškova and change to 46 is dropped, because you can walk to Haškova and
+   take the same 46.
 
 **Limits.** The list covers connections arriving no later than the last of
 the ~6 main ones (see Planner below), departing within 3 hours from now, with
 at most 6 rides each. That is up to 21 connections: 11 main plus 10
-alternatives.
+alternatives. From your location these limits apply per start station, and
+the merged list is cut at the 6th earliest arrival (see
+[Starting from your location](#starting-from-your-location)).
 
 ## How routing works
 
@@ -181,6 +203,14 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
   returns a Pareto set of (arrival time, number of rides) for one departure
   time.
   - Up to 6 rides per journey.
+  - The sources are all platforms of the start station, at the departure
+    time. No footpaths are relaxed from them in round 0, so a journey never
+    starts by walking to another station (rule 6).
+  - **Origin overlay.** `Options.Origin` adds a virtual stop (index = number
+    of GTFS stops) whose only edges are the given footpaths. It becomes the
+    single source; round 0 relaxes its footpaths, and `reconstruct` turns
+    that into the first walk leg. The shared per-day network is not modified,
+    so concurrent searches are safe.
   - Connections reaching different stops of the destination at the same time
     are all returned (e.g. a train at platform 98 and a tram at platform 2).
   - When the same trip can be boarded in two ways in one round:
@@ -224,12 +254,35 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
 
 A typical query takes 5–40 ms.
 
+### Starting from your location
+
+`/search?…&here=LAT,LON` passes the position as `planner.Options.Origin`
+(the `from` name is then ignored and shown as "My location").
+
+1. `Network.FootpathsFrom` lists every platform within 400 m, with the same
+   walking speed, detour factor and 60 s minimum as other footpaths. No stop
+   in range means no connections.
+2. The platforms are grouped by station. Each station is planned as a
+   separate start: the full main search from above, with `Origin` holding
+   only the footpaths to that station's platforms.
+3. The merged main connections are cut at the 6th earliest arrival.
+4. With Alternatives on, alternatives are searched per station within that
+   station's remaining connections.
+5. Detours are dropped across the merged list (rule 7): a connection goes if
+   another one rides a strict subset of its trips, arrives no later and
+   leaves no earlier.
+
+The cost grows with the number of nearby stations, typically 2–5, plus their
+alternatives.
+
 ## Tests
 
 `tests/routing` runs the planner on a pinned GTFS snapshot
 (`tests/routing/testdata/gtfs-2026-11-20.zip`, valid 2026-11-20 … 2026-12-11)
 and checks real-world scenarios. Every scenario also checks general invariants
-(legs connect, no time travel, transfer slack, no duplicate trip sets).
+(legs connect, no time travel, transfer slack, no duplicate trip sets from the
+same boarding station, no initial walk when starting from a station).
+`origin_test.go` covers starting from coordinates (`planFrom`).
 
 ```sh
 go test ./tests/routing -v
@@ -341,7 +394,7 @@ All templates and static files are embedded in the binary.
 | Route                         | Purpose                                                    |
 |-------------------------------|------------------------------------------------------------|
 | `GET /`                       | Search screen                                              |
-| `GET /search?from=&to=`       | Results                                                    |
+| `GET /search?from=&to=[&here=LAT,LON][&alt=1]` | Results; `here` starts from coordinates, `alt=1` adds alternatives |
 | `GET /map?j=`                 | Map of one journey (`j` = base64url JSON of the legs)      |
 | `GET /api/vehicles?lines=`    | Snapshot of all live vehicles of the given lines (JSON, for debugging) |
 | `GET /api/vehicles/stream?leg=TRIP~STOP~UNIX&leg=…` | SSE: `state` events with the matched vehicle and status per leg |
@@ -367,5 +420,10 @@ All templates and static files are embedded in the binary.
   (up to 15 min before departure) or is running the trip.
 - Optional filter not implemented: hide journeys with the same arrival but an
   earlier departure.
+- "My location" has no stop-free fallback: with no platform within 400 m the
+  result is simply "No connections found". Searching *to* your location is
+  not supported.
+- A saved results link keeps the position it was made with; it is not
+  refreshed.
 - The PWA splash background is dark in both themes (the manifest cannot
   follow the system theme).

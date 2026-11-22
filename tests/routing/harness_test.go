@@ -140,6 +140,9 @@ func (r *result) checkInvariants() {
 		if j.Departure().Before(r.depart.Truncate(time.Minute)) {
 			t.Errorf("journey #%d departs %s, before the requested %s", i+1, hm(j.Departure()), hm(r.depart))
 		}
+		if r.from != planner.OriginName && j.Legs[0].IsWalk() {
+			t.Errorf("journey #%d starts at a station but begins with a walk: %s", i+1, describeLeg(j.Legs[0]))
+		}
 		for k, l := range j.Legs {
 			if l.Arrive.Before(l.Depart) {
 				t.Errorf("journey #%d leg %d arrives before it departs: %s", i+1, k+1, describeLeg(l))
@@ -165,7 +168,7 @@ func (r *result) checkInvariants() {
 		}
 		key := tripSet(j)
 		if prev, dup := trips[key]; dup && key != "" {
-			t.Errorf("journeys #%d and #%d use the same trips (%s)", prev+1, i+1, key)
+			t.Errorf("journeys #%d and #%d use the same trips from the same station (%s)", prev+1, i+1, key)
 		}
 		trips[key] = i
 	}
@@ -193,6 +196,9 @@ func tripSet(j model.Journey) string {
 	var ids []string
 	for _, l := range j.Legs {
 		if !l.IsWalk() {
+			if len(ids) == 0 {
+				ids = append(ids, l.From.Name)
+			}
 			ids = append(ids, l.TripID)
 		}
 	}

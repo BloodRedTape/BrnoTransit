@@ -164,8 +164,8 @@ func (tt *Timetable) SearchWith(sources, targets []int32, depart int32, o Option
 			return nil
 		}
 	}
-	for _, st := range append([]int32(nil), marked...) {
-		s.relaxFootpaths(0, st, mark)
+	if len(o.Origin) > 0 {
+		s.relaxFootpaths(0, tt.OriginStop(), mark)
 	}
 
 	var results []Journey
