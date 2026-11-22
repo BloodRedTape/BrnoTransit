@@ -140,6 +140,14 @@ Notes:
    time. For example, 57 → S3 and 57 → tram 9, both leaving at 11:09 and
    arriving at 11:36, are both listed. So is 46 → tram 9 at 11:13, which uses
    the same tram trip but a different bus.
+   > **Known edge case: dominated alternatives are not shown.** The search
+   > finds the best connection for each departure time, not every combination
+   > of trips. If two connections leave at the same time but one arrives
+   > later, the later one is dropped, even though it uses different trips.
+   > Example (Sunday 2026-11-22, Haškova → Dětská nemocnice): bus 46 at 11:13
+   > → tram 9 at Zemědělská arrives 11:26, so bus 46 at 11:13 → tram 5 at
+   > Štefánikova čtvrť (arrives 11:29) is not listed. Showing every trip
+   > combination is a possible future change.
 4. **Line numbers do not matter** for grouping; only the trips do.
 5. **Sorting.** The final list is sorted by arrival at the destination; on
    equal arrival, the earlier departure comes first.
