@@ -178,6 +178,10 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
 
 .route-summary { margin: 4px 0 10px; }
 
+.results-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.results-controls .sort-pill { margin-bottom: 0; }
+.alt-form { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+
 .sort-pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 12px; margin-bottom: 16px;

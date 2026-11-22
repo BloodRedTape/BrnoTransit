@@ -5,7 +5,19 @@
 </header>
 
 <p class="route-summary muted">{{.From}} &rarr; {{.To}}</p>
-<div class="sort-pill" title="Sort order is fixed">{{template "icon-lock"}}<span>Sorted by: {{.SortedBy}}</span></div>
+<div class="results-controls">
+  <div class="sort-pill" title="Sort order is fixed">{{template "icon-lock"}}<span>Sorted by: {{.SortedBy}}</span></div>
+  <form class="alt-form" method="get" action="/search">
+    <input type="hidden" name="from" value="{{.From}}">
+    <input type="hidden" name="to" value="{{.To}}">
+    <label class="switch" title="Also show slightly slower connections that change to a different line">
+      <input type="checkbox" name="alt" value="1" role="switch" data-autosubmit{{if .Alternatives}} checked{{end}}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>Alternatives</span>
+    </label>
+    <noscript><button type="submit" class="alt-apply">Apply</button></noscript>
+  </form>
+</div>
 
 {{range .Journeys}}
 <article class="card journey">

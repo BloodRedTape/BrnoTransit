@@ -82,11 +82,30 @@ type search struct {
 	conns     []connRecord
 	pending   []int32
 	rounds    int
+	excluded  map[int32]bool
 }
 
+type Options struct {
+	MaxRides      int
+	TransferSlack int32
+	ArriveBy      int32
+	ExcludedLines map[int32]bool
+}
+
+func TripKey(route, trip int32) int64 { return int64(route)<<32 | int64(trip) }
+
 func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int, transferSlack int32) []Journey {
+	return tt.SearchWith(sources, targets, depart, Options{MaxRides: maxRides, TransferSlack: transferSlack})
+}
+
+func (tt *Timetable) SearchWith(sources, targets []int32, depart int32, o Options) []Journey {
 	n := len(tt.Net.Feed.Stops)
-	rounds := maxRides + 1
+	rounds := o.MaxRides + 1
+	transferSlack := o.TransferSlack
+	targetArr := int32(Infinity)
+	if o.ArriveBy > 0 && o.ArriveBy < Infinity {
+		targetArr = o.ArriveBy + 1
+	}
 	s := &search{
 		tt:        tt,
 		best:      make([][]int32, rounds),
@@ -99,9 +118,10 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		transDep:  make([][]int32, rounds),
 		tauStar:   fill(n),
 		isTarget:  make([]bool, n),
-		targetArr: Infinity,
+		targetArr: targetArr,
 		slack:     transferSlack,
 		rounds:    rounds,
+		excluded:  o.ExcludedLines,
 	}
 	for k := 0; k < rounds; k++ {
 		s.best[k] = fill(n)
@@ -191,6 +211,9 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 
 func (s *search) scanRoute(k int, ri, start int32, guaranteed []int32, mark func(int32)) {
 	r := &s.tt.Routes[ri]
+	if s.excluded[r.GTFSRoute] {
+		return
+	}
 	trip := -1
 	var boardPos, boardVia int32
 	var cur boarding
@@ -262,7 +285,7 @@ func rideKey(l label) int64 {
 	if l.kind != kindTransit {
 		return -1
 	}
-	return int64(l.route)<<32 | int64(l.trip)
+	return TripKey(l.route, l.trip)
 }
 
 func (s *search) boardingAt(k int, stop, dep int32) boarding {

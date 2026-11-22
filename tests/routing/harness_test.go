@@ -66,14 +66,18 @@ type result struct {
 	journeys []model.Journey
 }
 
-func plan(t *testing.T, from, to, when string) *result {
+func plan(t *testing.T, from, to, when string, opts ...planner.Options) *result {
 	t.Helper()
 	p, loc := gtfsPlanner(t)
 	depart, err := time.ParseInLocation("2006-01-02 15:04", when, loc)
 	if err != nil {
 		t.Fatalf("bad time %q: %v", when, err)
 	}
-	js, err := p.Plan(context.Background(), from, to, depart)
+	var o planner.Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	js, err := p.Plan(context.Background(), from, to, depart, o)
 	if err != nil {
 		t.Fatalf("Plan(%q → %q at %s): %v", from, to, when, err)
 	}
@@ -247,6 +251,13 @@ func boards(line, stop, at string) func(model.Journey) bool {
 			}
 		}
 		return false
+	}
+}
+
+func lastLine(line string) func(model.Journey) bool {
+	return func(j model.Journey) bool {
+		last := j.Legs[len(j.Legs)-1]
+		return !last.IsWalk() && last.Line.Name == line
 	}
 }
 

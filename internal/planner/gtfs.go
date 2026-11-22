@@ -20,7 +20,11 @@ import (
 const (
 	maxRides        = 6
 	wantedJourneys  = 6
-	maxIterations   = 12
+	maxExtra        = 5
+	maxIterations   = 20
+	maxAlternatives = 10
+	maxAltSearches  = 30
+	altTolerance    = 5 * time.Minute
 	searchWindow    = 3 * time.Hour
 	refreshInterval = 10 * time.Minute
 	transferSlack   = 1 * time.Minute
@@ -185,7 +189,7 @@ func (p *GTFSPlanner) Lookup(name string) (model.Stop, bool) {
 	return d.stations[i].stop, true
 }
 
-func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Time) ([]model.Journey, error) {
+func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Time, opts Options) ([]model.Journey, error) {
 	d := p.data.Load()
 	fi, ok1 := d.lookup(from)
 	ti, ok2 := d.lookup(to)
@@ -205,7 +209,8 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	bySet := map[string]int{}
 	var found []raptor.Journey
 	t := t0
-	for iter := 0; iter < maxIterations && len(found) < wantedJourneys && t <= limit; iter++ {
+	cutoff := int32(raptor.Infinity)
+	for iter := 0; iter < maxIterations && len(found) < wantedJourneys+maxExtra && t <= limit; iter++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -214,21 +219,32 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 			break
 		}
 		next := int32(raptor.Infinity)
+		added := false
 		for _, j := range js {
 			j = alignInitialWalk(j)
 			if dep := j.Legs[0].Dep; dep < next {
 				next = dep
 			}
-			if j.Legs[0].Dep > limit {
+			if j.Legs[0].Dep > limit || j.Arr > cutoff {
 				continue
 			}
 			key := tripSetKey(j)
 			if i, ok := bySet[key]; !ok {
+				if len(found) >= wantedJourneys+maxExtra {
+					continue
+				}
 				bySet[key] = len(found)
 				found = append(found, j)
+				added = true
 			} else if betterOnSameTrips(j, found[i]) {
 				found[i] = j
 			}
+		}
+		if len(found) >= wantedJourneys {
+			if cutoff != raptor.Infinity && !added {
+				break
+			}
+			cutoff = latestArrival(found)
 		}
 		if next < t {
 			next = t
@@ -239,11 +255,96 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		t = next + 60
 	}
 
+	if opts.Alternatives {
+		found = addAlternatives(ctx, tt, sources, targets, found, bySet, limit)
+	}
+
 	out := make([]model.Journey, 0, len(found))
 	for _, j := range found {
 		out = append(out, d.toModel(tt, j))
 	}
 	return out, nil
+}
+
+func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, bySet map[string]int, limit int32) []raptor.Journey {
+	if len(found) == 0 {
+		return found
+	}
+	cutoff := latestArrival(found)
+	type node struct {
+		j, root  raptor.Journey
+		excluded map[int32]bool
+	}
+	queue := make([]node, 0, len(found))
+	for _, j := range found {
+		queue = append(queue, node{j: j, root: j})
+	}
+	tried := map[string]bool{}
+	searches, added := 0, 0
+	for len(queue) > 0 && searches < maxAltSearches && added < maxAlternatives && ctx.Err() == nil {
+		n := queue[0]
+		queue = queue[1:]
+		var lines []int32
+		for _, l := range n.j.Legs {
+			if !l.Walk {
+				lines = append(lines, tt.Routes[l.Route].GTFSRoute)
+			}
+		}
+		for _, line := range lines[min(1, len(lines)):] {
+			excluded := make(map[int32]bool, len(n.excluded)+1)
+			for k := range n.excluded {
+				excluded[k] = true
+			}
+			excluded[line] = true
+			dep := n.j.Legs[0].Dep
+			key := exclusionKey(dep, excluded)
+			if tried[key] {
+				continue
+			}
+			tried[key] = true
+			if searches >= maxAltSearches || added >= maxAlternatives {
+				break
+			}
+			searches++
+			arriveBy := min(cutoff, n.root.Arr+int32(altTolerance/time.Second))
+			js := tt.SearchWith(sources, targets, dep, raptor.Options{
+				MaxRides:      n.root.Rides(),
+				TransferSlack: int32(transferSlack / time.Second),
+				ArriveBy:      arriveBy,
+				ExcludedLines: excluded,
+			})
+			for _, j := range js {
+				j = alignInitialWalk(j)
+				if j.Legs[0].Dep > limit || j.Arr > arriveBy {
+					continue
+				}
+				key := tripSetKey(j)
+				if i, ok := bySet[key]; ok {
+					if betterOnSameTrips(j, found[i]) {
+						found[i] = j
+					}
+					continue
+				}
+				if added >= maxAlternatives {
+					break
+				}
+				bySet[key] = len(found)
+				found = append(found, j)
+				added++
+				queue = append(queue, node{j: j, root: n.root, excluded: excluded})
+			}
+		}
+	}
+	return found
+}
+
+func exclusionKey(dep int32, excluded map[int32]bool) string {
+	keys := make([]string, 0, len(excluded))
+	for k := range excluded {
+		keys = append(keys, strconv.Itoa(int(k)))
+	}
+	sort.Strings(keys)
+	return strconv.Itoa(int(dep)) + ":" + strings.Join(keys, ",")
 }
 
 func alignInitialWalk(j raptor.Journey) raptor.Journey {
@@ -256,6 +357,14 @@ func alignInitialWalk(j raptor.Journey) raptor.Journey {
 	legs[0].Dep = legs[1].Dep - dur
 	j.Legs = legs
 	return j
+}
+
+func latestArrival(js []raptor.Journey) int32 {
+	var latest int32
+	for _, j := range js {
+		latest = max(latest, j.Arr)
+	}
+	return latest
 }
 
 func walkSeconds(j raptor.Journey) int32 {

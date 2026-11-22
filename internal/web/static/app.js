@@ -416,6 +416,9 @@ function initHistoryBack() {
 document.addEventListener("DOMContentLoaded", () => {
   initRouteMap();
   initHistoryBack();
+  document.querySelectorAll("[data-autosubmit]").forEach((el) => {
+    el.addEventListener("change", () => el.form.requestSubmit());
+  });
   const stops = loadStops();
   document.querySelectorAll(".stop-input").forEach((input) => attachAutocomplete(input, stops));
 

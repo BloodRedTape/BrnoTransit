@@ -12,7 +12,7 @@ with time-limited tickets. This app sorts by **earliest arrival** instead.
 - **Search screen:** from/to stop inputs with an accent-insensitive
   autocomplete. `Kra`, `Krá` and `kralovo` all find *Královo Pole*; the
   server also accepts names without diacritics.
-- **Results screen:** up to ~6 connections sorted by arrival time; on equal
+- **Results screen:** every distinct combination of trips (up to ~20), sorted by arrival time; on equal
   arrival, the one departing earlier comes first (the sort is fixed). Each card
   shows line badges in official colours, platforms, intermediate stop count,
   walking transfers and guaranteed connections. See
@@ -140,20 +140,21 @@ Notes:
    time. For example, 57 → S3 and 57 → tram 9, both leaving at 11:09 and
    arriving at 11:36, are both listed. So is 46 → tram 9 at 11:13, which uses
    the same tram trip but a different bus.
-   > **Known edge case: dominated alternatives are not shown.** The search
-   > finds the best connection for each departure time, not every combination
-   > of trips. If two connections leave at the same time but one arrives
-   > later, the later one is dropped, even though it uses different trips.
-   > Example (Sunday 2026-11-22, Haškova → Dětská nemocnice): bus 46 at 11:13
-   > → tram 9 at Zemědělská arrives 11:26, so bus 46 at 11:13 → tram 5 at
-   > Štefánikova čtvrť (arrives 11:29) is not listed. Showing every trip
-   > combination is a possible future change.
-4. **Line numbers do not matter** for grouping; only the trips do.
+
+   This also holds when one of them arrives later: bus 46 at 11:13 → tram 9
+   (arrives 11:26) and the same bus 46 at 11:13 → tram 5 (arrives 11:29) are
+   both shown.
+4. **Line numbers do not matter** for grouping; only the trips do. They are
+   only used to look for alternatives: an alternative changes to a different
+   line, not to a later vehicle of the same line. Waiting at the transfer for
+   the next tram 9 is not offered, because a later first bus does the same.
 5. **Sorting.** The final list is sorted by arrival at the destination; on
    equal arrival, the earlier departure comes first.
 
-**Limits.** Up to ~6 connections, departing within 3 hours from now, with at
-most 6 rides each.
+**Limits.** The list covers connections arriving no later than the last of
+the ~6 main ones (see Planner below), departing within 3 hours from now, with
+at most 6 rides each. That is up to 21 connections: 11 main plus 10
+alternatives.
 
 ## How routing works
 
@@ -199,8 +200,21 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
     waits up to N min" (or "Timed connection" when the wait is 0).
 - **Planner** (`internal/planner/gtfs.go`)
   - Repeats the search, each time departing one minute after the earliest
-    departure found in the previous search. It stops after 6 distinct sets of
-    trips, 12 searches or a 3-hour window.
+    departure found in the previous search.
+  - Once 6 distinct sets of trips are found, it keeps searching while new
+    connections arrive no later than the latest one already found, so the
+    tail of the list is cut by arrival, not by departure. Example: bus 57 at
+    11:39 and bus 46 at 11:43 both arrive at 11:56, and both are shown.
+  - Guardrails: at most 5 such extra connections (11 in total), 20 searches,
+    and a 3-hour departure window.
+  - **Alternatives** (rule 3). For every connection found, each ride except
+    the first is replaced in turn: the search is repeated from the same
+    departure with that ride's line excluded. Example: from 46 → tram 9 this
+    finds 46 → tram 5. New connections are explored the same way, with their
+    exclusions accumulated. Only connections arriving no later than the last
+    main one are kept.
+  - Guardrails for alternatives: at most 10 new connections and 30 extra
+    searches.
   - Search time is truncated to the current minute, so a vehicle departing
     this minute is still offered.
   - Results are grouped by their set of trips as they come in, keeping the

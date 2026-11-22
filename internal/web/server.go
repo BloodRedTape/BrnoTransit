@@ -130,6 +130,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	from := strings.TrimSpace(q.Get("from"))
 	to := strings.TrimSpace(q.Get("to"))
+	alternatives := q.Get("alt") == "1"
 
 	if msg := s.validate(from, to); msg != "" {
 		s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, msg))
@@ -139,7 +140,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	now := s.now().In(s.loc)
 	ctx, cancel := context.WithTimeout(r.Context(), planTimeout)
 	defer cancel()
-	journeys, err := s.planner.Plan(ctx, from, to, now)
+	journeys, err := s.planner.Plan(ctx, from, to, now, planner.Options{Alternatives: alternatives})
 	if err != nil {
 		if errors.Is(err, planner.ErrUnknownStop) {
 			s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, "Unknown stop."))
@@ -163,12 +164,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	toStop, _ := s.stops.Lookup(to)
 	back := url.Values{"from": {fromStop.Name}, "to": {toStop.Name}}
 	s.render(w, http.StatusOK, "results.html", resultsPage{
-		Title:    "Connections found",
-		From:     fromStop.Name,
-		To:       toStop.Name,
-		BackURL:  "/?" + back.Encode(),
-		SortedBy: "Fastest arrival",
-		Journeys: buildJourneyViews(journeys, now, s.loc, s.signer),
+		Title:        "Connections found",
+		From:         fromStop.Name,
+		To:           toStop.Name,
+		BackURL:      "/?" + back.Encode(),
+		SortedBy:     "Fastest arrival",
+		Alternatives: alternatives,
+		Journeys:     buildJourneyViews(journeys, now, s.loc, s.signer),
 	})
 }
 

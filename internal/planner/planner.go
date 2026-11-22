@@ -11,8 +11,12 @@ import (
 
 var ErrUnknownStop = errors.New("unknown stop")
 
+type Options struct {
+	Alternatives bool
+}
+
 type Planner interface {
-	Plan(ctx context.Context, from, to string, depart time.Time) ([]model.Journey, error)
+	Plan(ctx context.Context, from, to string, depart time.Time, opts Options) ([]model.Journey, error)
 }
 
 type StopDirectory interface {

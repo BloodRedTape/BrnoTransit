@@ -32,12 +32,13 @@ func SortByEarliestArrival(js []model.Journey) {
 }
 
 type resultsPage struct {
-	Title    string
-	From     string
-	To       string
-	BackURL  string
-	SortedBy string
-	Journeys []journeyView
+	Title        string
+	From         string
+	To           string
+	BackURL      string
+	SortedBy     string
+	Alternatives bool
+	Journeys     []journeyView
 }
 
 type journeyView struct {

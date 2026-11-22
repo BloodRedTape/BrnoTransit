@@ -68,7 +68,7 @@ func NewMockPlanner(stops StopDirectory) *MockPlanner {
 	return &MockPlanner{stops: stops}
 }
 
-func (m *MockPlanner) Plan(ctx context.Context, from, to string, depart time.Time) ([]model.Journey, error) {
+func (m *MockPlanner) Plan(ctx context.Context, from, to string, depart time.Time, _ Options) ([]model.Journey, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
