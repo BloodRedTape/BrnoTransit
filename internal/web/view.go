@@ -27,7 +27,7 @@ func SortByEarliestArrival(js []model.Journey) {
 		if !ai.Equal(ak) {
 			return ai.Before(ak)
 		}
-		return js[i].Departure().After(js[k].Departure())
+		return js[i].Departure().Before(js[k].Departure())
 	})
 }
 

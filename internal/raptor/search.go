@@ -33,7 +33,7 @@ type connRecord struct {
 	from     label
 	fromStop int32
 	arr      int32
-	walk     int32
+	board    boarding
 	conn     Connection
 }
 
@@ -73,6 +73,8 @@ type search struct {
 	transLab  [][]label
 	bestWalk  [][]int32
 	transWalk [][]int32
+	bestDep   [][]int32
+	transDep  [][]int32
 	tauStar   []int32
 	isTarget  []bool
 	targetArr int32
@@ -93,6 +95,8 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		transLab:  make([][]label, rounds),
 		bestWalk:  make([][]int32, rounds),
 		transWalk: make([][]int32, rounds),
+		bestDep:   make([][]int32, rounds),
+		transDep:  make([][]int32, rounds),
 		tauStar:   fill(n),
 		isTarget:  make([]bool, n),
 		targetArr: Infinity,
@@ -106,6 +110,8 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		s.transLab[k] = make([]label, n)
 		s.bestWalk[k] = make([]int32, n)
 		s.transWalk[k] = make([]int32, n)
+		s.bestDep[k] = make([]int32, n)
+		s.transDep[k] = make([]int32, n)
 	}
 	for _, t := range targets {
 		s.isTarget[t] = true
@@ -134,9 +140,7 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 	}
 
 	var results []Journey
-	if j, ok := s.collect(0, Infinity); ok {
-		results = append(results, j)
-	}
+	results = append(results, s.collect(0, Infinity)...)
 	prevBest := s.targetArr
 
 	queue := make(map[int32]int32)
@@ -150,6 +154,7 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 		copy(s.best[k], s.best[k-1])
 		copy(s.bestLab[k], s.bestLab[k-1])
 		copy(s.bestWalk[k], s.bestWalk[k-1])
+		copy(s.bestDep[k], s.bestDep[k-1])
 
 		clear(queue)
 		clear(guaranteed)
@@ -176,9 +181,9 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 			s.relaxFootpaths(k, st, mark)
 		}
 
-		if j, ok := s.collect(k, prevBest); ok {
-			results = append(results, j)
-			prevBest = j.Arr
+		if js := s.collect(k, prevBest); len(js) > 0 {
+			results = append(results, js...)
+			prevBest = js[0].Arr
 		}
 	}
 	return results
@@ -187,15 +192,16 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 func (s *search) scanRoute(k int, ri, start int32, guaranteed []int32, mark func(int32)) {
 	r := &s.tt.Routes[ri]
 	trip := -1
-	var boardPos, boardWalk, boardVia int32
+	var boardPos, boardVia int32
+	var cur boarding
 	for pos := int(start); pos < len(r.Stops); pos++ {
 		stop := r.Stops[pos]
 		if trip >= 0 && r.Drop[pos] {
 			a := r.ArrAt(trip, pos)
 			lab := label{kind: kindTransit, round: int32(k), route: ri, trip: int32(trip), boardPos: boardPos, alightPos: int32(pos), via: boardVia}
-			if a < s.tauStar[stop] && a < s.targetArr {
-				s.transit[k][stop], s.transLab[k][stop], s.transWalk[k][stop] = a, lab, boardWalk
-				s.best[k][stop], s.bestLab[k][stop], s.bestWalk[k][stop] = a, lab, boardWalk
+			if a < s.tauStar[stop] && s.reachesTarget(a, stop) {
+				s.transit[k][stop], s.transLab[k][stop], s.transWalk[k][stop], s.transDep[k][stop] = a, lab, cur.walk, cur.dep
+				s.best[k][stop], s.bestLab[k][stop], s.bestWalk[k][stop], s.bestDep[k][stop] = a, lab, cur.walk, cur.dep
 				s.tauStar[stop] = a
 				if s.isTarget[stop] {
 					s.targetArr = a
@@ -203,7 +209,7 @@ func (s *search) scanRoute(k int, ri, start int32, guaranteed []int32, mark func
 				mark(stop)
 			}
 			if r.HasConn != nil && r.HasConn[pos] && k+1 < s.rounds && a < s.targetArr {
-				s.recordConnections(lab, stop, a, boardWalk, r.Conns[int32(r.at(trip, pos))])
+				s.recordConnections(lab, stop, a, cur, r.Conns[int32(r.at(trip, pos))])
 			}
 		}
 		for _, ci := range guaranteed {
@@ -213,9 +219,9 @@ func (s *search) scanRoute(k int, ri, start int32, guaranteed []int32, mark func
 			}
 			t := int(rec.conn.ToTrip)
 			dur, _ := s.tt.Net.walkBetween(rec.fromStop, stop)
-			walk := rec.walk + dur
-			if trip < 0 || t < trip || (t == trip && walk < boardWalk) {
-				trip, boardPos, boardWalk, boardVia = t, int32(pos), walk, ci+1
+			cand := boarding{walk: rec.board.walk + dur, dep: rec.board.dep, prev: rideKey(rec.from)}
+			if trip < 0 || t < trip || (t == trip && cand.better(cur)) {
+				trip, boardPos, cur, boardVia = t, int32(pos), cand, ci+1
 			}
 		}
 		prev := s.best[k-1][stop]
@@ -232,20 +238,51 @@ func (s *search) scanRoute(k int, ri, start int32, guaranteed []int32, mark func
 		if t < 0 {
 			continue
 		}
-		walk := s.bestWalk[k-1][stop]
-		if trip < 0 || t < trip || (t == trip && walk < boardWalk) {
-			trip, boardPos, boardWalk, boardVia = t, int32(pos), walk, 0
+		cand := s.boardingAt(k-1, stop, r.DepAt(t, pos))
+		if trip < 0 || t < trip || (t == trip && cand.better(cur)) {
+			trip, boardPos, cur, boardVia = t, int32(pos), cand, 0
 		}
 	}
 }
 
-func (s *search) recordConnections(from label, stop, arr, walk int32, conns []Connection) {
+type boarding struct {
+	walk int32
+	dep  int32
+	prev int64
+}
+
+func (b boarding) better(cur boarding) bool {
+	if b.prev == cur.prev {
+		return b.walk < cur.walk
+	}
+	return b.dep < cur.dep
+}
+
+func rideKey(l label) int64 {
+	if l.kind != kindTransit {
+		return -1
+	}
+	return int64(l.route)<<32 | int64(l.trip)
+}
+
+func (s *search) boardingAt(k int, stop, dep int32) boarding {
+	lab := s.bestLab[k][stop]
+	if lab.round == 0 {
+		return boarding{walk: s.bestWalk[k][stop], dep: dep - s.bestWalk[k][stop], prev: -1}
+	}
+	if lab.kind == kindWalk {
+		lab = s.transLab[lab.round][lab.from]
+	}
+	return boarding{walk: s.bestWalk[k][stop], dep: s.bestDep[k][stop], prev: rideKey(lab)}
+}
+
+func (s *search) recordConnections(from label, stop, arr int32, board boarding, conns []Connection) {
 	for _, c := range conns {
 		if s.tt.Routes[c.ToRoute].DepAt(int(c.ToTrip), int(c.ToPos)) >= s.targetArr {
 			continue
 		}
 		s.pending = append(s.pending, int32(len(s.conns)))
-		s.conns = append(s.conns, connRecord{from: from, fromStop: stop, arr: arr, walk: walk, conn: c})
+		s.conns = append(s.conns, connRecord{from: from, fromStop: stop, arr: arr, board: board, conn: c})
 	}
 }
 
@@ -253,12 +290,13 @@ func (s *search) relaxFootpaths(k int, from int32, mark func(int32)) {
 	base := s.transit[k][from]
 	for _, fp := range s.tt.Net.Footpaths[from] {
 		a := base + fp.Dur
-		if a >= s.tauStar[fp.To] || a >= s.targetArr {
+		if a >= s.tauStar[fp.To] || !s.reachesTarget(a, fp.To) {
 			continue
 		}
 		s.best[k][fp.To] = a
 		s.bestLab[k][fp.To] = label{kind: kindWalk, round: int32(k), from: from, dur: fp.Dur, meters: fp.Meters}
 		s.bestWalk[k][fp.To] = s.transWalk[k][from] + fp.Dur
+		s.bestDep[k][fp.To] = s.transDep[k][from]
 		s.tauStar[fp.To] = a
 		if s.isTarget[fp.To] {
 			s.targetArr = a
@@ -276,17 +314,29 @@ func earliestTrip(r *Route, pos int, t int32) int {
 	return i
 }
 
-func (s *search) collect(k int, prevBest int32) (Journey, bool) {
-	bestStop, bestArr := int32(-1), prevBest
+func (s *search) reachesTarget(a, stop int32) bool {
+	return a < s.targetArr || (a == s.targetArr && s.isTarget[stop])
+}
+
+func (s *search) collect(k int, prevBest int32) []Journey {
+	bestArr := prevBest
+	var stops []int32
 	for stop, arr := range s.best[k] {
-		if s.isTarget[stop] && arr < bestArr && s.bestLab[k][stop].round == int32(k) {
-			bestStop, bestArr = int32(stop), arr
+		if !s.isTarget[stop] || arr > bestArr || s.bestLab[k][stop].round != int32(k) {
+			continue
+		}
+		if arr < bestArr {
+			bestArr, stops = arr, stops[:0]
+		}
+		if arr < prevBest {
+			stops = append(stops, int32(stop))
 		}
 	}
-	if bestStop < 0 {
-		return Journey{}, false
+	var out []Journey
+	for _, stop := range stops {
+		out = append(out, Journey{Legs: s.reconstruct(k, stop), Arr: bestArr})
 	}
-	return Journey{Legs: s.reconstruct(k, bestStop), Arr: bestArr}, true
+	return out
 }
 
 func (s *search) reconstruct(k int, stop int32) []Leg {

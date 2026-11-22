@@ -31,6 +31,19 @@ func TestHaskovaToDetskaNemocnice_Bus46ThenTram5NotLost(t *testing.T) {
 		})
 }
 
+func TestHaskovaToHlavniNadrazi_Bus57ThenTram9AlongsideTrain(t *testing.T) {
+	r := plan(t, "Haškova", "Hlavní nádraží", "2026-11-22 10:53")
+
+	r.expectSome("rides 57 at 11:09 and then train S3", and(boards("57", "Haškova", "11:09"), func(j model.Journey) bool {
+		return j.Legs[len(j.Legs)-1].Line.Name == "S3"
+	}))
+	r.expectSome("rides 57 at 11:09 and changes to tram 9 at Halasovo náměstí",
+		and(boards("57", "Haškova", "11:09"), noWalksBetweenStops, rides(
+			ride{"57", "Haškova", "Halasovo náměstí"},
+			ride{"9", "Halasovo náměstí", "Hlavní nádraží"},
+		)))
+}
+
 func TestHaskovaToHlavniNadrazi_NoWalkToBoardSameNightBus(t *testing.T) {
 	r := plan(t, "Haškova", "Hlavní nádraží", "2026-11-21 23:12")
 

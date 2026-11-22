@@ -12,9 +12,11 @@ with time-limited tickets. This app sorts by **earliest arrival** instead.
 - **Search screen:** from/to stop inputs with an accent-insensitive
   autocomplete. `Kra`, `Krá` and `kralovo` all find *Královo Pole*; the
   server also accepts names without diacritics.
-- **Results screen:** up to ~6 connections sorted by arrival time (the sort is
-  fixed). Each card shows line badges in official colours, platforms,
-  intermediate stop count and walking transfers.
+- **Results screen:** up to ~6 connections sorted by arrival time; on equal
+  arrival, the one departing earlier comes first (the sort is fixed). Each card
+  shows line badges in official colours, platforms, intermediate stop count,
+  walking transfers and guaranteed connections. See
+  [Which connections are shown](#which-connections-are-shown).
 - **Map screen** (`/map`): the route on a vector map, coloured per line, with
   start/end markers and transfer points. Rides follow the real street/track
   geometry from the city's route layer (see [Route shapes](#route-shapes)).
@@ -112,6 +114,39 @@ Notes:
   `block_id` is empty in the GTFS feed. A vehicle can therefore only be
   identified once it is actually running the trip.
 
+## Which connections are shown
+
+**Terms.**
+- A **trip** is one concrete run of a vehicle (a GTFS `trip_id`), e.g. the
+  N92 leaving Haškova at 00:10. The line number alone is not a trip: the N92 at
+  00:10 and the N92 at 00:40 are different trips.
+- A **connection** is a set of trips plus the walks between them.
+
+**Rules.**
+1. **Earliest arrival first.** The goal is to reach the destination as early
+   as possible, starting now. Arrival time is always the main criterion.
+2. **Same trips → one connection.** If several connections ride exactly the
+   same set of trips, only the best one is kept:
+   1. earlier arrival;
+   2. then less walking;
+   3. then later departure.
+
+   This drops pointless walks: walking to an earlier stop of the same bus
+   (Haškova → Loosova for the N92 that also stops at Haškova), or getting off
+   to walk to a stop that the same tram passes anyway (Slavíčkova → Čertova
+   rokle instead of changing at Halasovo náměstí).
+3. **Different trips → show each.** Every distinct set of trips gets its own
+   best connection, and all of them are shown, even with the same arrival
+   time. For example, 57 → S3 and 57 → tram 9, both leaving at 11:09 and
+   arriving at 11:36, are both listed. So is 46 → tram 9 at 11:13, which uses
+   the same tram trip but a different bus.
+4. **Line numbers do not matter** for grouping; only the trips do.
+5. **Sorting.** The final list is sorted by arrival at the destination; on
+   equal arrival, the earlier departure comes first.
+
+**Limits.** Up to ~6 connections, departing within 3 hours from now, with at
+most 6 rides each.
+
 ## How routing works
 
 Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
@@ -137,6 +172,14 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
   returns a Pareto set of (arrival time, number of rides) for one departure
   time.
   - Up to 6 rides per journey.
+  - Connections reaching different stops of the destination at the same time
+    are all returned (e.g. a train at platform 98 and a tram at platform 2).
+  - When the same trip can be boarded in two ways in one round:
+    - if both come from the same previous trip (or both from the origin), the
+      one with less walking wins (same trips, rule 2);
+    - otherwise the one leaving the origin earlier wins. The other one is a
+      different set of trips and is found by a later planner iteration
+      (rule 3).
   - A **transfer slack of 1 minute** is required on top of walking time. It
     applies only after a ride; the first boarding has no slack.
   - **Guaranteed connections.** `transfers.txt` also has ~100k trip-to-trip
@@ -147,14 +190,14 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
     and no walking minimum. Results show these as "Guaranteed connection ·
     waits up to N min" (or "Timed connection" when the wait is 0).
 - **Planner** (`internal/planner/gtfs.go`)
-  - Repeats the search, each time departing one minute after the previous
-    best departure. It stops after ~6 distinct journeys or a 3-hour window.
+  - Repeats the search, each time departing one minute after the earliest
+    departure found in the previous search. It stops after 6 distinct sets of
+    trips, 12 searches or a 3-hour window.
   - Search time is truncated to the current minute, so a vehicle departing
     this minute is still offered.
-  - Exact duplicates are dropped. Journeys that use the same vehicles and
-    arrive at the same time but leave earlier (a pointless walk to an earlier
-    stop of the same trip) are merged.
-- **Sorting** by earliest arrival happens in the web layer
+  - Results are grouped by their set of trips as they come in, keeping the
+    best of each group (rule 2). The count above is taken after grouping.
+- **Sorting** (rule 5) happens in the web layer
   (`web.SortByEarliestArrival`).
 
 A typical query takes 5–40 ms.

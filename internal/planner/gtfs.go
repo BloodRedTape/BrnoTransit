@@ -202,7 +202,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	limit := t0 + int32(searchWindow/time.Second)
 	sources, targets := d.stations[fi].children, d.stations[ti].children
 
-	seen := map[string]bool{}
+	bySet := map[string]int{}
 	var found []raptor.Journey
 	t := t0
 	for iter := 0; iter < maxIterations && len(found) < wantedJourneys && t <= limit; iter++ {
@@ -222,10 +222,12 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 			if j.Legs[0].Dep > limit {
 				continue
 			}
-			key := signature(j)
-			if !seen[key] {
-				seen[key] = true
+			key := tripSetKey(j)
+			if i, ok := bySet[key]; !ok {
+				bySet[key] = len(found)
 				found = append(found, j)
+			} else if betterOnSameTrips(j, found[i]) {
+				found[i] = j
 			}
 		}
 		if next < t {
@@ -237,7 +239,6 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		t = next + 60
 	}
 
-	found = bestPerTripSet(found)
 	out := make([]model.Journey, 0, len(found))
 	for _, j := range found {
 		out = append(out, d.toModel(tt, j))
@@ -255,18 +256,6 @@ func alignInitialWalk(j raptor.Journey) raptor.Journey {
 	legs[0].Dep = legs[1].Dep - dur
 	j.Legs = legs
 	return j
-}
-
-func signature(j raptor.Journey) string {
-	var sb strings.Builder
-	for _, l := range j.Legs {
-		if l.Walk {
-			fmt.Fprintf(&sb, "w%d-%d;", l.From, l.To)
-		} else {
-			fmt.Fprintf(&sb, "r%d.%d.%d.%d;", l.Route, l.Trip, l.BoardPos, l.AlightPos)
-		}
-	}
-	return sb.String()
 }
 
 func walkSeconds(j raptor.Journey) int32 {
@@ -301,24 +290,6 @@ func tripSetKey(j raptor.Journey) string {
 	}
 	sort.Strings(trips)
 	return strings.Join(trips, ";")
-}
-
-func bestPerTripSet(js []raptor.Journey) []raptor.Journey {
-	best := map[string]int{}
-	var out []raptor.Journey
-	for _, j := range js {
-		key := tripSetKey(j)
-		i, ok := best[key]
-		if !ok {
-			best[key] = len(out)
-			out = append(out, j)
-			continue
-		}
-		if betterOnSameTrips(j, out[i]) {
-			out[i] = j
-		}
-	}
-	return out
 }
 
 func newDataset(feed *gtfs.Feed, loc *time.Location) *dataset {
