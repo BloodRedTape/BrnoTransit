@@ -29,7 +29,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), payment=(), usb=()")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		if r.TLS != nil || (fromProxy(r) && r.Header.Get("X-Forwarded-Proto") == "https") {
 			h.Set("Strict-Transport-Security", "max-age=31536000")

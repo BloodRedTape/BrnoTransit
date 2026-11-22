@@ -100,30 +100,41 @@ func (s *Server) Handler() http.Handler {
 }
 
 type indexPage struct {
-	Title string
-	From  string
-	To    string
-	Error string
-	Stops []string
+	Title      string
+	From       string
+	To         string
+	Here       string
+	OriginName string
+	Error      string
+	Stops      []string
 }
 
-func (s *Server) indexData(from, to, errMsg string) indexPage {
+func (s *Server) indexData(from, to, here, errMsg string) indexPage {
 	names := make([]string, 0, len(s.stops.Stops()))
 	for _, st := range s.stops.Stops() {
 		names = append(names, st.Name)
 	}
+	if here != "" {
+		from = planner.OriginName
+	}
 	return indexPage{
-		Title: "Brno Transit",
-		From:  from,
-		To:    to,
-		Error: errMsg,
-		Stops: names,
+		Title:      "Brno Transit",
+		From:       from,
+		To:         to,
+		Here:       here,
+		OriginName: planner.OriginName,
+		Error:      errMsg,
+		Stops:      names,
 	}
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	s.render(w, http.StatusOK, "index.html", s.indexData(q.Get("from"), q.Get("to"), ""))
+	here := ""
+	if p, ok := parseHere(q.Get("here")); ok {
+		here = formatHere(*p)
+	}
+	s.render(w, http.StatusOK, "index.html", s.indexData(q.Get("from"), q.Get("to"), here, ""))
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -131,19 +142,25 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	from := strings.TrimSpace(q.Get("from"))
 	to := strings.TrimSpace(q.Get("to"))
 	alternatives := q.Get("alt") == "1"
+	origin, _ := parseHere(q.Get("here"))
+	here := ""
+	if origin != nil {
+		here = formatHere(*origin)
+		from = planner.OriginName
+	}
 
-	if msg := s.validate(from, to); msg != "" {
-		s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, msg))
+	if msg := s.validate(from, to, origin != nil); msg != "" {
+		s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, here, msg))
 		return
 	}
 
 	now := s.now().In(s.loc)
 	ctx, cancel := context.WithTimeout(r.Context(), planTimeout)
 	defer cancel()
-	journeys, err := s.planner.Plan(ctx, from, to, now, planner.Options{Alternatives: alternatives})
+	journeys, err := s.planner.Plan(ctx, from, to, now, planner.Options{Alternatives: alternatives, Origin: origin})
 	if err != nil {
 		if errors.Is(err, planner.ErrUnknownStop) {
-			s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, "Unknown stop."))
+			s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, here, "Unknown stop."))
 			return
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -160,13 +177,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	SortByEarliestArrival(journeys)
 
-	fromStop, _ := s.stops.Lookup(from)
+	fromName := planner.OriginName
+	if origin == nil {
+		fromStop, _ := s.stops.Lookup(from)
+		fromName = fromStop.Name
+	}
 	toStop, _ := s.stops.Lookup(to)
-	back := url.Values{"from": {fromStop.Name}, "to": {toStop.Name}}
+	back := url.Values{"from": {fromName}, "to": {toStop.Name}}
+	if here != "" {
+		back.Set("here", here)
+	}
 	s.render(w, http.StatusOK, "results.html", resultsPage{
 		Title:        "Connections found",
-		From:         fromStop.Name,
+		From:         fromName,
 		To:           toStop.Name,
+		Here:         here,
 		BackURL:      "/?" + back.Encode(),
 		SortedBy:     "Fastest arrival",
 		Alternatives: alternatives,
@@ -196,17 +221,20 @@ func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "map.html", page)
 }
 
-func (s *Server) validate(from, to string) string {
+func (s *Server) validate(from, to string, hasOrigin bool) string {
 	if from == "" || to == "" {
 		return "Please enter both stops."
-	}
-	f, ok := s.stops.Lookup(from)
-	if !ok {
-		return "Unknown stop: " + from
 	}
 	t, ok := s.stops.Lookup(to)
 	if !ok {
 		return "Unknown stop: " + to
+	}
+	if hasOrigin {
+		return ""
+	}
+	f, ok := s.stops.Lookup(from)
+	if !ok {
+		return "Unknown stop: " + from
 	}
 	if f.ID == t.ID {
 		return "From and To must be different stops."

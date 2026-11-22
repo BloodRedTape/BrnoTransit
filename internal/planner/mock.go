@@ -68,11 +68,14 @@ func NewMockPlanner(stops StopDirectory) *MockPlanner {
 	return &MockPlanner{stops: stops}
 }
 
-func (m *MockPlanner) Plan(ctx context.Context, from, to string, depart time.Time, _ Options) ([]model.Journey, error) {
+func (m *MockPlanner) Plan(ctx context.Context, from, to string, depart time.Time, opts Options) ([]model.Journey, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	src, ok := m.stops.Lookup(from)
+	if opts.Origin != nil {
+		src, ok = model.Stop{ID: "origin", Name: OriginName}, true
+	}
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownStop, from)
 	}

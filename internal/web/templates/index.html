@@ -11,6 +11,8 @@
     <label class="sr-only" for="from">From</label>
     <input id="from" name="from" class="stop-input" placeholder="From" value="{{.From}}" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="from-list">
     <ul class="suggest" id="from-list" role="listbox" hidden></ul>
+    <input type="hidden" id="here" name="here" value="{{.Here}}"{{if not .Here}} disabled{{end}} data-origin-name="{{.OriginName}}">
+    <button type="button" class="swap locate" id="locate" aria-label="Use my location" aria-pressed="{{if .Here}}true{{else}}false{{end}}" hidden>{{template "icon-locate"}}</button>
     <button type="button" class="swap" id="swap" aria-label="Swap From and To">{{template "icon-swap"}}</button>
   </div>
   <div class="field">

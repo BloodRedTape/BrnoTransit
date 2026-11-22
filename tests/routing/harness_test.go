@@ -68,14 +68,32 @@ type result struct {
 
 func plan(t *testing.T, from, to, when string, opts ...planner.Options) *result {
 	t.Helper()
+	var o planner.Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	r := planRaw(t, from, to, when, o)
+	if len(r.journeys) == 0 {
+		t.Fatalf("no journeys found (does the feed at %s cover %s?)", feedPath(), when)
+	}
+	r.checkInvariants()
+	return r
+}
+
+func planFrom(t *testing.T, lat, lon float64, to, when string) *result {
+	t.Helper()
+	return plan(t, "", to, when, planner.Options{Origin: &model.Point{Lat: lat, Lon: lon}})
+}
+
+func planRaw(t *testing.T, from, to, when string, o planner.Options) *result {
+	t.Helper()
 	p, loc := gtfsPlanner(t)
 	depart, err := time.ParseInLocation("2006-01-02 15:04", when, loc)
 	if err != nil {
 		t.Fatalf("bad time %q: %v", when, err)
 	}
-	var o planner.Options
-	if len(opts) > 0 {
-		o = opts[0]
+	if o.Origin != nil {
+		from = planner.OriginName
 	}
 	js, err := p.Plan(context.Background(), from, to, depart, o)
 	if err != nil {
@@ -83,10 +101,6 @@ func plan(t *testing.T, from, to, when string, opts ...planner.Options) *result 
 	}
 	r := &result{t: t, from: from, to: to, depart: depart, journeys: js}
 	t.Logf("Plan %s → %s at %s:\n%s", from, to, when, r)
-	if len(js) == 0 {
-		t.Fatalf("no journeys found (does the feed at %s cover %s?)", feedPath(), when)
-	}
-	r.checkInvariants()
 	return r
 }
 

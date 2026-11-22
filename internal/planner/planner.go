@@ -11,8 +11,11 @@ import (
 
 var ErrUnknownStop = errors.New("unknown stop")
 
+const OriginName = "My location"
+
 type Options struct {
 	Alternatives bool
+	Origin       *model.Point
 }
 
 type Planner interface {

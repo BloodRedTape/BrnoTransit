@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"brnotransport/internal/model"
+	"brnotransport/internal/planner"
 )
 
 const (
@@ -60,6 +61,9 @@ func fallbackURL(token string) string {
 	from, to := legs[0].From, legs[len(legs)-1].To
 	if from == "" || to == "" {
 		return "/"
+	}
+	if from == planner.OriginName {
+		return "/?" + url.Values{"to": {to}}.Encode()
 	}
 	return "/search?" + url.Values{"from": {from}, "to": {to}}.Encode()
 }
@@ -205,9 +209,13 @@ func buildMapPage(legs []mapLeg) (mapPage, error) {
 		return mapPage{}, err
 	}
 	first, last := legs[0], legs[len(legs)-1]
+	back := url.Values{"from": {first.From}, "to": {last.To}}
+	if first.Walk && first.From == planner.OriginName {
+		back.Set("here", formatHere(model.Point{Lat: first.Path[0][0], Lon: first.Path[0][1]}))
+	}
 	p := mapPage{
 		Title:    "Route map",
-		BackURL:  "/search?" + url.Values{"from": {first.From}, "to": {last.To}}.Encode(),
+		BackURL:  "/search?" + back.Encode(),
 		From:     first.From,
 		To:       last.To,
 		Dep:      first.Dep,

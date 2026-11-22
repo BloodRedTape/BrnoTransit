@@ -191,20 +191,30 @@ func (p *GTFSPlanner) Lookup(name string) (model.Stop, bool) {
 
 func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Time, opts Options) ([]model.Journey, error) {
 	d := p.data.Load()
-	fi, ok1 := d.lookup(from)
-	ti, ok2 := d.lookup(to)
-	if !ok1 || !ok2 {
+	ti, ok := d.lookup(to)
+	if !ok {
 		return nil, ErrUnknownStop
 	}
-	if fi == ti {
-		return nil, errors.New("origin equals destination")
+	targets := d.stations[ti].children
+	base := raptor.Options{MaxRides: maxRides, TransferSlack: int32(transferSlack / time.Second)}
+	var sources []int32
+	if opts.Origin != nil {
+		base.Origin = d.net.FootpathsFrom(opts.Origin.Lat, opts.Origin.Lon)
+	} else {
+		fi, ok := d.lookup(from)
+		if !ok {
+			return nil, ErrUnknownStop
+		}
+		if fi == ti {
+			return nil, errors.New("origin equals destination")
+		}
+		sources = d.stations[fi].children
 	}
 
 	depart = depart.In(d.loc).Truncate(time.Minute)
 	tt := d.timetable(depart)
 	t0 := int32(depart.Sub(tt.Base) / time.Second)
 	limit := t0 + int32(searchWindow/time.Second)
-	sources, targets := d.stations[fi].children, d.stations[ti].children
 
 	bySet := map[string]int{}
 	var found []raptor.Journey
@@ -214,7 +224,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		js := tt.Search(sources, targets, t, maxRides, int32(transferSlack/time.Second))
+		js := tt.SearchWith(sources, targets, t, base)
 		if len(js) == 0 {
 			break
 		}
@@ -256,17 +266,17 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	}
 
 	if opts.Alternatives {
-		found = addAlternatives(ctx, tt, sources, targets, found, bySet, limit)
+		found = addAlternatives(ctx, tt, sources, targets, found, bySet, limit, base)
 	}
 
 	out := make([]model.Journey, 0, len(found))
 	for _, j := range found {
-		out = append(out, d.toModel(tt, j))
+		out = append(out, d.toModel(tt, j, opts.Origin))
 	}
 	return out, nil
 }
 
-func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, bySet map[string]int, limit int32) []raptor.Journey {
+func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, bySet map[string]int, limit int32, base raptor.Options) []raptor.Journey {
 	if len(found) == 0 {
 		return found
 	}
@@ -307,12 +317,9 @@ func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets
 			}
 			searches++
 			arriveBy := min(cutoff, n.root.Arr+int32(altTolerance/time.Second))
-			js := tt.SearchWith(sources, targets, dep, raptor.Options{
-				MaxRides:      n.root.Rides(),
-				TransferSlack: int32(transferSlack / time.Second),
-				ArriveBy:      arriveBy,
-				ExcludedLines: excluded,
-			})
+			o := base
+			o.MaxRides, o.ArriveBy, o.ExcludedLines = n.root.Rides(), arriveBy, excluded
+			js := tt.SearchWith(sources, targets, dep, o)
 			for _, j := range js {
 				j = alignInitialWalk(j)
 				if j.Legs[0].Dep > limit || j.Arr > arriveBy {
@@ -495,12 +502,18 @@ func (d *dataset) timetable(t time.Time) *raptor.Timetable {
 	return tt
 }
 
-func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey) model.Journey {
+func (d *dataset) toModel(tt *raptor.Timetable, j raptor.Journey, origin *model.Point) model.Journey {
 	feed := d.net.Feed
 	at := func(sec int32) time.Time { return tt.Base.Add(time.Duration(sec) * time.Second) }
+	stop := func(i int32) gtfs.Stop {
+		if i == tt.OriginStop() {
+			return gtfs.Stop{Name: OriginName, Lat: origin.Lat, Lon: origin.Lon}
+		}
+		return feed.Stops[i]
+	}
 	var out model.Journey
 	for _, l := range j.Legs {
-		from, to := feed.Stops[l.From], feed.Stops[l.To]
+		from, to := stop(l.From), stop(l.To)
 		leg := model.Leg{
 			From:         model.Stop{ID: from.ID, Name: from.Name},
 			To:           model.Stop{ID: to.ID, Name: to.Name},

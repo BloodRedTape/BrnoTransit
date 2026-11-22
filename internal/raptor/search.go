@@ -83,6 +83,7 @@ type search struct {
 	pending   []int32
 	rounds    int
 	excluded  map[int32]bool
+	origin    []Footpath
 }
 
 type Options struct {
@@ -90,7 +91,10 @@ type Options struct {
 	TransferSlack int32
 	ArriveBy      int32
 	ExcludedLines map[int32]bool
+	Origin        []Footpath
 }
+
+func (tt *Timetable) OriginStop() int32 { return int32(len(tt.Net.Feed.Stops)) }
 
 func TripKey(route, trip int32) int64 { return int64(route)<<32 | int64(trip) }
 
@@ -100,6 +104,10 @@ func (tt *Timetable) Search(sources, targets []int32, depart int32, maxRides int
 
 func (tt *Timetable) SearchWith(sources, targets []int32, depart int32, o Options) []Journey {
 	n := len(tt.Net.Feed.Stops)
+	if len(o.Origin) > 0 {
+		sources = []int32{tt.OriginStop()}
+		n++
+	}
 	rounds := o.MaxRides + 1
 	transferSlack := o.TransferSlack
 	targetArr := int32(Infinity)
@@ -122,6 +130,7 @@ func (tt *Timetable) SearchWith(sources, targets []int32, depart int32, o Option
 		slack:     transferSlack,
 		rounds:    rounds,
 		excluded:  o.ExcludedLines,
+		origin:    o.Origin,
 	}
 	for k := 0; k < rounds; k++ {
 		s.best[k] = fill(n)
@@ -179,10 +188,13 @@ func (tt *Timetable) SearchWith(sources, targets []int32, depart int32, o Option
 		clear(queue)
 		clear(guaranteed)
 		for _, st := range marked {
+			isMarked[st] = false
+			if st == tt.OriginStop() {
+				continue
+			}
 			for _, sr := range tt.StopRoutes[st] {
 				enqueue(sr.Route, sr.Pos)
 			}
-			isMarked[st] = false
 		}
 		marked = marked[:0]
 		for _, ci := range s.pending {
@@ -311,7 +323,11 @@ func (s *search) recordConnections(from label, stop, arr int32, board boarding, 
 
 func (s *search) relaxFootpaths(k int, from int32, mark func(int32)) {
 	base := s.transit[k][from]
-	for _, fp := range s.tt.Net.Footpaths[from] {
+	paths := s.origin
+	if from != s.tt.OriginStop() {
+		paths = s.tt.Net.Footpaths[from]
+	}
+	for _, fp := range paths {
 		a := base + fp.Dur
 		if a >= s.tauStar[fp.To] || !s.reachesTarget(a, fp.To) {
 			continue

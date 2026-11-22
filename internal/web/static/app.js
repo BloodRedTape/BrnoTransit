@@ -424,12 +424,76 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const swap = document.getElementById("swap");
   if (!swap) return;
+  const geo = initLocate();
   swap.addEventListener("click", () => {
     const from = document.getElementById("from");
     const to = document.getElementById("to");
+    if (geo.active()) {
+      geo.clear();
+      [from.value, to.value] = [to.value, ""];
+      return;
+    }
     [from.value, to.value] = [to.value, from.value];
   });
 });
+
+function showFormError(form, text) {
+  let el = form.querySelector(".form-error");
+  if (!el) {
+    el = Object.assign(document.createElement("p"), { className: "form-error", role: "alert" });
+    form.prepend(el);
+  }
+  el.textContent = text;
+}
+
+function initLocate() {
+  const button = document.getElementById("locate");
+  const here = document.getElementById("here");
+  const from = document.getElementById("from");
+  const originName = here.dataset.originName;
+  const active = () => !here.disabled;
+  const set = (value) => {
+    here.value = value;
+    here.disabled = !value;
+    button.setAttribute("aria-pressed", String(!!value));
+  };
+  const clear = () => {
+    if (!active()) return;
+    set("");
+    if (from.value === originName) from.value = "";
+  };
+
+  from.addEventListener("input", () => active() && set(""));
+  if (!("geolocation" in navigator)) {
+    clear();
+    return { active, clear };
+  }
+  button.hidden = false;
+  button.addEventListener("click", () => {
+    if (active()) {
+      clear();
+      from.focus();
+      return;
+    }
+    button.classList.add("busy");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        button.classList.remove("busy");
+        const { latitude, longitude } = pos.coords;
+        set(`${latitude.toFixed(4)},${longitude.toFixed(4)}`);
+        from.value = originName;
+      },
+      (err) => {
+        button.classList.remove("busy");
+        showFormError(from.form, err.code === err.PERMISSION_DENIED
+          ? "Location access is blocked. Allow it in the browser settings."
+          : "Could not get your location. Try again.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  });
+  return { active, clear };
+}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

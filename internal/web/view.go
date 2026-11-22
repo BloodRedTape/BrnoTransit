@@ -35,6 +35,7 @@ type resultsPage struct {
 	Title        string
 	From         string
 	To           string
+	Here         string
 	BackURL      string
 	SortedBy     string
 	Alternatives bool

@@ -10,6 +10,7 @@
   <form class="alt-form" method="get" action="/search">
     <input type="hidden" name="from" value="{{.From}}">
     <input type="hidden" name="to" value="{{.To}}">
+    {{if .Here}}<input type="hidden" name="here" value="{{.Here}}">{{end}}
     <label class="switch" title="Also show slightly slower connections that change to a different line">
       <input type="checkbox" name="alt" value="1" role="switch" data-autosubmit{{if .Alternatives}} checked{{end}}>
       <span class="switch-track" aria-hidden="true"></span>

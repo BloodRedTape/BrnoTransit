@@ -60,6 +60,19 @@ func (n *Network) walkBetween(from, to int32) (dur, meters int32) {
 	return max(int32(math.Ceil(d/walkSpeed)), minWalkSeconds), int32(math.Round(d))
 }
 
+func (n *Network) FootpathsFrom(lat, lon float64) []Footpath {
+	here := gtfs.Stop{Lat: lat, Lon: lon}
+	var out []Footpath
+	for i, s := range n.Feed.Stops {
+		if !n.UsedStops[i] || Distance(here, s) > walkRadiusMeters {
+			continue
+		}
+		d := Distance(here, s) * walkDetour
+		out = append(out, Footpath{To: int32(i), Dur: max(int32(math.Ceil(d/walkSpeed)), minWalkSeconds), Meters: int32(math.Round(d))})
+	}
+	return out
+}
+
 func (n *Network) buildPatterns() {
 	index := map[string]int{}
 	var sb strings.Builder

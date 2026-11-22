@@ -150,6 +150,10 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
   border-radius: 8px;
 }
 .swap:hover { background: var(--hover); }
+.locate[hidden] { display: none; }
+.locate[aria-pressed="true"] { background: var(--hover); }
+.locate.busy { animation: locate-pulse 1s ease-in-out infinite; }
+@keyframes locate-pulse { 50% { opacity: 0.35; } }
 
 .btn-primary {
   width: 100%;
