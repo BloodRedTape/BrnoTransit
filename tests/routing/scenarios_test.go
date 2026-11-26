@@ -80,3 +80,14 @@ func TestHaskovaToHlavniNadrazi_NoWalkToBoardSameNightBus(t *testing.T) {
 	r.expectSome("boards the 00:40 N92 right at Haškova instead of walking to Loosova for it",
 		and(noWalksBetweenStops, boards("N92", "Haškova", "00:40"), rides(ride{"N92", "Haškova", "Hlavní nádraží"})))
 }
+
+func TestCountReturnsMoreConnections(t *testing.T) {
+	def := plan(t, "Haškova", "Hlavní nádraží", "2026-11-22 10:53")
+	more := plan(t, "Haškova", "Hlavní nádraží", "2026-11-22 10:53", planner.Options{Count: 18})
+	if len(more.journeys) < 18 {
+		t.Errorf("Count 18 gave %d connections, want at least 18", len(more.journeys))
+	}
+	if len(more.journeys) <= len(def.journeys) {
+		t.Errorf("Count 18 gave %d connections, default gave %d", len(more.journeys), len(def.journeys))
+	}
+}

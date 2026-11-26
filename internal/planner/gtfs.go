@@ -20,11 +20,10 @@ import (
 
 const (
 	maxRides        = 6
-	wantedJourneys  = 6
 	maxExtra        = 5
-	maxIterations   = 20
-	maxAlternatives = 10
-	maxAltSearches  = 30
+	baseIterations  = 14
+	altPer3Wanted   = 5
+	altSearchesPerW = 5
 	altTolerance    = 5 * time.Minute
 	searchWindow    = 3 * time.Hour
 	refreshInterval = 10 * time.Minute
@@ -199,6 +198,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	}
 	targets := d.stations[ti].children
 	base := raptor.Options{MaxRides: maxRides, TransferSlack: int32(transferSlack / time.Second)}
+	wanted := opts.count()
 	var starts []start
 	if opts.Origin != nil {
 		starts = d.originStarts(*opts.Origin, base)
@@ -221,12 +221,12 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	for i := range starts {
 		s := &starts[i]
 		var err error
-		if s.found, err = mainSearch(ctx, tt, s.sources, targets, t0, limit, s.opts); err != nil {
+		if s.found, err = mainSearch(ctx, tt, s.sources, targets, t0, limit, s.opts, wanted); err != nil {
 			return nil, err
 		}
 	}
 	if len(starts) > 1 {
-		cutoff := mergedCutoff(starts)
+		cutoff := mergedCutoff(starts, wanted)
 		for i := range starts {
 			starts[i].found = arrivingBy(starts[i].found, cutoff)
 		}
@@ -236,7 +236,7 @@ func (p *GTFSPlanner) Plan(ctx context.Context, from, to string, depart time.Tim
 	for _, s := range starts {
 		found := s.found
 		if opts.Alternatives {
-			found = addAlternatives(ctx, tt, s.sources, targets, found, limit, s.opts)
+			found = addAlternatives(ctx, tt, s.sources, targets, found, limit, s.opts, wanted)
 		}
 		all = append(all, found...)
 	}
@@ -310,7 +310,7 @@ func (d *dataset) originStarts(p model.Point, base raptor.Options) []start {
 	return out
 }
 
-func mergedCutoff(starts []start) int32 {
+func mergedCutoff(starts []start, wanted int) int32 {
 	var arr []int32
 	for _, s := range starts {
 		for _, j := range s.found {
@@ -321,7 +321,7 @@ func mergedCutoff(starts []start) int32 {
 		return raptor.Infinity
 	}
 	slices.Sort(arr)
-	return arr[min(wantedJourneys, len(arr))-1]
+	return arr[min(wanted, len(arr))-1]
 }
 
 func arrivingBy(js []raptor.Journey, cutoff int32) []raptor.Journey {
@@ -334,12 +334,13 @@ func arrivingBy(js []raptor.Journey, cutoff int32) []raptor.Journey {
 	return out
 }
 
-func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, t0, limit int32, base raptor.Options) ([]raptor.Journey, error) {
+func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, t0, limit int32, base raptor.Options, wanted int) ([]raptor.Journey, error) {
+	maxIterations := baseIterations + wanted
 	bySet := map[string]int{}
 	var found []raptor.Journey
 	t := t0
 	cutoff := int32(raptor.Infinity)
-	for iter := 0; iter < maxIterations && len(found) < wantedJourneys+maxExtra && t <= limit; iter++ {
+	for iter := 0; iter < maxIterations && len(found) < wanted+maxExtra && t <= limit; iter++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -359,7 +360,7 @@ func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []in
 			}
 			key := tripSetKey(j)
 			if i, ok := bySet[key]; !ok {
-				if len(found) >= wantedJourneys+maxExtra {
+				if len(found) >= wanted+maxExtra {
 					continue
 				}
 				bySet[key] = len(found)
@@ -369,7 +370,7 @@ func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []in
 				found[i] = j
 			}
 		}
-		if len(found) >= wantedJourneys {
+		if len(found) >= wanted {
 			if cutoff != raptor.Infinity && !added {
 				break
 			}
@@ -386,7 +387,9 @@ func mainSearch(ctx context.Context, tt *raptor.Timetable, sources, targets []in
 	return found, nil
 }
 
-func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, limit int32, base raptor.Options) []raptor.Journey {
+func addAlternatives(ctx context.Context, tt *raptor.Timetable, sources, targets []int32, found []raptor.Journey, limit int32, base raptor.Options, wanted int) []raptor.Journey {
+	maxAlternatives := altPer3Wanted * wanted / 3
+	maxAltSearches := altSearchesPerW * wanted
 	if len(found) == 0 {
 		return found
 	}

@@ -16,7 +16,9 @@ with time-limited tickets. This app sorts by **earliest arrival** instead.
     geolocation as the start. Journeys then begin with a walk from your
     position to a nearby station (see [Starting from your location](#starting-from-your-location)).
     Coordinates are rounded to 4 decimals (~11 m) before they go into the URL.
-- **Results screen:** every distinct combination of trips (up to ~20), sorted by arrival time; on equal
+- **Results screen:** every distinct combination of trips (~6 by default, up to 30 via `n`;
+  "Show more connections" adds 6; it and the ↻ refresh button in the header
+  reload the list in place, without a page reload), sorted by arrival time; on equal
   arrival, the one departing earlier comes first (the sort is fixed). Each card
   shows line badges in official colours, platforms, intermediate stop count,
   walking transfers and guaranteed connections. See
@@ -172,10 +174,10 @@ Notes:
    take the same 46.
 
 **Limits.** The list covers connections arriving no later than the last of
-the ~6 main ones (see Planner below), departing within 3 hours from now, with
-at most 6 rides each. That is up to 21 connections: 11 main plus 10
+the ~N main ones (N = `n`, default 6, max 30; see Planner below), departing
+within 3 hours from now, with at most 6 rides each. With the default N = 6 that is up to 21 connections: 11 main plus 10
 alternatives. From your location these limits apply per start station, and
-the merged list is cut at the 6th earliest arrival (see
+the merged list is cut at the N-th earliest arrival (see
 [Starting from your location](#starting-from-your-location)).
 
 ## How routing works
@@ -231,11 +233,11 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
 - **Planner** (`internal/planner/gtfs.go`)
   - Repeats the search, each time departing one minute after the earliest
     departure found in the previous search.
-  - Once 6 distinct sets of trips are found, it keeps searching while new
+  - Once N (default 6) distinct sets of trips are found, it keeps searching while new
     connections arrive no later than the latest one already found, so the
     tail of the list is cut by arrival, not by departure. Example: bus 57 at
     11:39 and bus 46 at 11:43 both arrive at 11:56, and both are shown.
-  - Guardrails: at most 5 such extra connections (11 in total), 20 searches,
+  - Guardrails: at most 5 such extra connections (N + 5 in total), 14 + N searches,
     and a 3-hour departure window.
   - **Alternatives** (rule 3). For every connection found, each ride except
     the first is replaced in turn: the search is repeated from the same
@@ -243,7 +245,7 @@ Routing uses **RAPTOR** (Round-bAsed Public Transit Optimized Router).
     finds 46 → tram 5. New connections are explored the same way, with their
     exclusions accumulated. Only connections arriving no later than the last
     main one are kept.
-  - Guardrails for alternatives: at most 10 new connections and 30 extra
+  - Guardrails for alternatives: at most 5·N/3 new connections and 5·N extra
     searches.
   - Search time is truncated to the current minute, so a vehicle departing
     this minute is still offered.
@@ -265,7 +267,7 @@ A typical query takes 5–40 ms.
 2. The platforms are grouped by station. Each station is planned as a
    separate start: the full main search from above, with `Origin` holding
    only the footpaths to that station's platforms.
-3. The merged main connections are cut at the 6th earliest arrival.
+3. The merged main connections are cut at the N-th earliest arrival.
 4. With Alternatives on, alternatives are searched per station within that
    station's remaining connections.
 5. Detours are dropped across the merged list (rule 7): a connection goes if
@@ -394,7 +396,7 @@ All templates and static files are embedded in the binary.
 | Route                         | Purpose                                                    |
 |-------------------------------|------------------------------------------------------------|
 | `GET /`                       | Search screen                                              |
-| `GET /search?from=&to=[&here=LAT,LON][&alt=1]` | Results; `here` starts from coordinates, `alt=1` adds alternatives |
+| `GET /search?from=&to=[&here=LAT,LON][&alt=1][&n=N]` | Results; `here` starts from coordinates, `alt=1` adds alternatives, `n` = number of connections (default 6, max 30) |
 | `GET /map?j=`                 | Map of one journey (`j` = base64url JSON of the legs)      |
 | `GET /api/vehicles?lines=`    | Snapshot of all live vehicles of the given lines (JSON, for debugging) |
 | `GET /api/vehicles/stream?leg=TRIP~STOP~UNIX&leg=…` | SSE: `state` events with the matched vehicle and status per leg |

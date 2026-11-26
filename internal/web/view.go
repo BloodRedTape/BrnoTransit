@@ -39,6 +39,9 @@ type resultsPage struct {
 	BackURL      string
 	SortedBy     string
 	Alternatives bool
+	Count        int
+	MoreURL      string
+	RefreshURL   string
 	Journeys     []journeyView
 }
 

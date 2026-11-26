@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -142,6 +143,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	from := strings.TrimSpace(q.Get("from"))
 	to := strings.TrimSpace(q.Get("to"))
 	alternatives := q.Get("alt") == "1"
+	count := parseCount(q.Get("n"))
 	origin, _ := parseHere(q.Get("here"))
 	here := ""
 	if origin != nil {
@@ -157,7 +159,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	now := s.now().In(s.loc)
 	ctx, cancel := context.WithTimeout(r.Context(), planTimeout)
 	defer cancel()
-	journeys, err := s.planner.Plan(ctx, from, to, now, planner.Options{Alternatives: alternatives, Origin: origin})
+	journeys, err := s.planner.Plan(ctx, from, to, now, planner.Options{Alternatives: alternatives, Origin: origin, Count: count})
 	if err != nil {
 		if errors.Is(err, planner.ErrUnknownStop) {
 			s.render(w, http.StatusBadRequest, "index.html", s.indexData(from, to, here, "Unknown stop."))
@@ -187,6 +189,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if here != "" {
 		back.Set("here", here)
 	}
+	searchURL := func(n int) string {
+		v := url.Values{"from": {fromName}, "to": {toStop.Name}, "n": {strconv.Itoa(n)}}
+		if here != "" {
+			v.Set("here", here)
+		}
+		if alternatives {
+			v.Set("alt", "1")
+		}
+		return "/search?" + v.Encode()
+	}
+	moreURL := ""
+	if count < planner.MaxCount && len(journeys) > 0 {
+		moreURL = searchURL(min(count+planner.DefaultCount, planner.MaxCount))
+	}
 	s.render(w, http.StatusOK, "results.html", resultsPage{
 		Title:        "Connections found",
 		From:         fromName,
@@ -195,8 +211,19 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		BackURL:      "/?" + back.Encode(),
 		SortedBy:     "Fastest arrival",
 		Alternatives: alternatives,
+		Count:        count,
+		MoreURL:      moreURL,
+		RefreshURL:   searchURL(count),
 		Journeys:     buildJourneyViews(journeys, now, s.loc, s.signer),
 	})
+}
+
+func parseCount(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n <= 0 {
+		return planner.DefaultCount
+	}
+	return min(n, planner.MaxCount)
 }
 
 func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {

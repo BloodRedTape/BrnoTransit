@@ -2,6 +2,7 @@
 <header class="topbar">
   <a class="back accent" href="{{.BackURL}}" aria-label="Back to search">{{template "icon-back"}}</a>
   <h1>Connections found</h1>
+  <a class="refresh accent" href="{{.RefreshURL}}" aria-label="Refresh connections" title="Refresh">{{template "icon-refresh"}}</a>
 </header>
 
 <p class="route-summary muted">{{.From}} &rarr; {{.To}}</p>
@@ -11,6 +12,7 @@
     <input type="hidden" name="from" value="{{.From}}">
     <input type="hidden" name="to" value="{{.To}}">
     {{if .Here}}<input type="hidden" name="here" value="{{.Here}}">{{end}}
+    <input type="hidden" name="n" value="{{.Count}}">
     <label class="switch" title="Also show slightly slower connections that change to a different line">
       <input type="checkbox" name="alt" value="1" role="switch" data-autosubmit{{if .Alternatives}} checked{{end}}>
       <span class="switch-track" aria-hidden="true"></span>
@@ -20,6 +22,7 @@
   </form>
 </div>
 
+<div id="journeys">
 {{range .Journeys}}
 <article class="card journey">
   <div class="journey-head">
@@ -62,4 +65,8 @@
 {{else}}
 <p class="card empty">No connections found.</p>
 {{end}}
+{{if .MoreURL}}
+<a class="more-link accent" href="{{.MoreURL}}">Show more connections</a>
+{{end}}
+</div>
 {{end}}

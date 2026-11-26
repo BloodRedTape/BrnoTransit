@@ -13,9 +13,22 @@ var ErrUnknownStop = errors.New("unknown stop")
 
 const OriginName = "My location"
 
+const (
+	DefaultCount = 6
+	MaxCount     = 30
+)
+
 type Options struct {
 	Alternatives bool
 	Origin       *model.Point
+	Count        int
+}
+
+func (o Options) count() int {
+	if o.Count <= 0 {
+		return DefaultCount
+	}
+	return min(o.Count, MaxCount)
 }
 
 type Planner interface {

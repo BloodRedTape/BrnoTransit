@@ -179,6 +179,11 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
 }
 .back { padding: 6px; margin-left: -6px; border-radius: 8px; }
 .back:hover { background: var(--hover); }
+.refresh { margin-left: auto; padding: 6px; margin-right: -6px; border-radius: 8px; display: inline-flex; }
+.refresh:hover { background: var(--hover); }
+.refresh.busy .icon { animation: spin .8s linear infinite; }
+.more-link.busy { opacity: .6; pointer-events: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .route-summary { margin: 4px 0 10px; }
 
@@ -408,3 +413,5 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
   font: 700 10px/1.2 "Open Sans", "Segoe UI", system-ui, sans-serif;
 }
 .veh-delay[hidden], .veh-arrow[hidden] { display: none; }
+
+.more-link { display: block; text-align: center; padding: 12px; margin-bottom: 16px; font-weight: 600; text-decoration: none; }

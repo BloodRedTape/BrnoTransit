@@ -419,6 +419,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-autosubmit]").forEach((el) => {
     el.addEventListener("change", () => el.form.requestSubmit());
   });
+  initResults();
   const stops = loadStops();
   document.querySelectorAll(".stop-input").forEach((input) => attachAutocomplete(input, stops));
 
@@ -498,5 +499,49 @@ function initLocate() {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("service worker:", e));
+  });
+}
+
+function initResults() {
+  const list = document.getElementById("journeys");
+  if (!list) return;
+  let busy = false;
+
+  const load = async (url, button) => {
+    if (busy) return;
+    busy = true;
+    button.classList.add("busy");
+    const isMore = button.classList.contains("more-link");
+    const label = button.textContent;
+    if (isMore) button.textContent = "Loading…";
+    try {
+      const res = await fetch(url, { headers: { Accept: "text/html" } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+      const fresh = doc.getElementById("journeys");
+      if (!fresh) throw new Error("no results in response");
+      list.replaceChildren(...fresh.childNodes);
+      const n = doc.querySelector('.alt-form input[name="n"]');
+      const current = document.querySelector('.alt-form input[name="n"]');
+      if (n && current) current.value = n.value;
+      const refresh = doc.querySelector(".refresh");
+      const own = document.querySelector(".refresh");
+      if (refresh && own) own.setAttribute("href", refresh.getAttribute("href"));
+      history.replaceState(null, "", url);
+    } catch (e) {
+      console.warn("results:", e);
+      location.href = url;
+    } finally {
+      busy = false;
+      button.classList.remove("busy");
+      if (isMore) button.textContent = label;
+    }
+  };
+
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest(".more-link, .refresh");
+    if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    load(a.href, a);
   });
 }
